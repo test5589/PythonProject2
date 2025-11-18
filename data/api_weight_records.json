@@ -1,0 +1,62 @@
+{
+  "1m": {
+    "weight": 1.0,
+    "base_count": 2000,
+    "lock_records": [],
+    "lock_times": 0,
+    "unlock_times": 0,
+    "last_lock_time": null,
+    "last_unlock_time": null,
+    "status": "normal"
+  },
+  "3m": {
+    "weight": 1.0,
+    "base_count": 2000,
+    "lock_records": [],
+    "lock_times": 0,
+    "unlock_times": 0,
+    "last_lock_time": null,
+    "last_unlock_time": null,
+    "status": "normal"
+  },
+  "5m": {
+    "weight": 1.0,
+    "base_count": 2000,
+    "lock_records": [],
+    "lock_times": 0,
+    "unlock_times": 0,
+    "last_lock_time": null,
+    "last_unlock_time": null,
+    "status": "normal"
+  },
+  "10m": {
+    "weight": 1.0,
+    "base_count": 2000,
+    "lock_records": [],
+    "lock_times": 0,
+    "unlock_times": 0,
+    "last_lock_time": null,
+    "last_unlock_time": null,
+    "status": "normal"
+  },
+  "30m": {
+    "weight": 1.0,
+    "base_count": 2000,
+    "lock_records": [],
+    "lock_times": 0,
+    "unlock_times": 0,
+    "last_lock_time": null,
+    "last_unlock_time": null,
+    "status": "normal"
+  },
+  "1h": {
+    "weight": 1.0,
+    "base_count": 2000,
+    "lock_records": [],
+    "lock_times": 0,
+    "unlock_times": 0,
+    "last_lock_time": null,
+    "last_unlock_time": null,
+    "status": "normal"
+  }
+}

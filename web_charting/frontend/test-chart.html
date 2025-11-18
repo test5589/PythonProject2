@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lightweight Charts 測試</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+        }
+        #container {
+            width: 800px;
+            height: 400px;
+            background: #2a2a2a;
+            border: 3px solid lime;
+            margin: 20px auto;
+        }
+        h1 {
+            text-align: center;
+            color: lime;
+        }
+        .info {
+            text-align: center;
+            margin: 20px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Lightweight Charts 測試頁面</h1>
+    <div class="info">如果下面的綠框中看到 K 線圖，說明 Lightweight Charts 正常工作</div>
+    <div id="container"></div>
+    <div class="info" id="status">正在創建圖表...</div>
+
+    <script type="module">
+        // 直接從 CDN 載入 Lightweight Charts
+        import { createChart } from 'https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.mjs';
+
+        console.log('🚀 開始測試 Lightweight Charts');
+
+        const container = document.getElementById('container');
+        const status = document.getElementById('status');
+
+        try {
+            console.log('📦 創建圖表實例...');
+            const chart = createChart(container, {
+                width: 800,
+                height: 400,
+                layout: {
+                    background: { color: '#222' },
+                    textColor: '#DDD',
+                },
+                grid: {
+                    vertLines: { color: '#444' },
+                    horzLines: { color: '#444' },
+                },
+            });
+
+            console.log('✅ 圖表實例創建成功');
+
+            console.log('📊 添加 Candlestick Series...');
+            const candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#26a69a',
+                downColor: '#ef5350',
+                borderVisible: false,
+                wickUpColor: '#26a69a',
+                wickDownColor: '#ef5350',
+            });
+
+            console.log('📝 設置測試數據...');
+            const testData = [
+                { time: 1638360000, open: 100, high: 110, low: 95, close: 105 },
+                { time: 1638360060, open: 105, high: 115, low: 100, close: 110 },
+                { time: 1638360120, open: 110, high: 120, low: 105, close: 115 },
+                { time: 1638360180, open: 115, high: 125, low: 110, close: 120 },
+                { time: 1638360240, open: 120, high: 130, low: 115, close: 125 },
+                { time: 1638360300, open: 125, high: 135, low: 120, close: 130 },
+                { time: 1638360360, open: 130, high: 140, low: 125, close: 135 },
+                { time: 1638360420, open: 135, high: 145, low: 130, close: 140 },
+            ];
+
+            candlestickSeries.setData(testData);
+            console.log('✅ 數據設置完成');
+
+            chart.timeScale().fitContent();
+            console.log('✅ 調整視圖完成');
+
+            // 檢查 Canvas
+            setTimeout(() => {
+                const canvases = container.querySelectorAll('canvas');
+                console.log(`🎨 找到 ${canvases.length} 個 Canvas 元素`);
+                
+                if (canvases.length > 0) {
+                    status.innerHTML = `✅ 成功！找到 ${canvases.length} 個 Canvas 元素<br>Lightweight Charts 工作正常！`;
+                    status.style.color = 'lime';
+                    
+                    canvases.forEach((canvas, i) => {
+                        console.log(`Canvas ${i}:`, {
+                            width: canvas.width,
+                            height: canvas.height,
+                            offsetWidth: canvas.offsetWidth,
+                            offsetHeight: canvas.offsetHeight
+                        });
+                    });
+                } else {
+                    status.innerHTML = '❌ 錯誤：Canvas 未創建！Lightweight Charts 可能有問題。';
+                    status.style.color = 'red';
+                }
+            }, 500);
+
+        } catch (error) {
+            console.error('❌ 錯誤:', error);
+            status.innerHTML = `❌ 錯誤: ${error.message}`;
+            status.style.color = 'red';
+        }
+    </script>
+</body>
+</html>
