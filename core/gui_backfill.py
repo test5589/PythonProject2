@@ -153,6 +153,11 @@ class GUIBackfill:
             completed_symbols = []  # 成功完成的貨幣對
             failed_symbols = []     # 失敗的貨幣對
             skipped_symbols = []    # 跳過的貨幣對（停止或錯誤後）
+            # 回補風險與摘要：記錄每個貨幣對的狀態與錯誤類型
+            backfill_summary = {}   # symbol -> {status, validation, risk, note}
+            validation_error_count = 0
+            insert_error_count = 0
+            other_error_count = 0
             
             try:
                 # 獲取全域資料庫操作鎖
@@ -194,9 +199,22 @@ class GUIBackfill:
                             if result:
                                 message_sender.info(symbol, f"✅ {symbol} 回補成功，資料完整性驗證通過")
                                 completed_symbols.append(symbol)  # 記錄成功
+                                backfill_summary[symbol] = {
+                                    "status": "SUCCESS",
+                                    "validation": "PASS",
+                                    "risk": "OK",
+                                    "note": "回補成功，資料完整性驗證通過",
+                                }
                             else:
                                 message_sender.warning(symbol, f"⚠️ {symbol} 回補結果未知")
                                 failed_symbols.append(symbol)  # 記錄失敗
+                                other_error_count += 1
+                                backfill_summary[symbol] = {
+                                    "status": "FAILED",
+                                    "validation": "WARN",
+                                    "risk": "結果未知",
+                                    "note": "回補結果未知",
+                                }
                             
                             state = backfill_state_manager.get_state()
                             if state.is_stopped:
@@ -204,6 +222,12 @@ class GUIBackfill:
                                 # 記錄剩餘未處理的貨幣對
                                 remaining = target_symbols[index:]
                                 skipped_symbols.extend(remaining)
+                                backfill_summary[symbol] = {
+                                    "status": "SKIPPED",
+                                    "validation": "WARN",
+                                    "risk": "任務被停止",
+                                    "note": "回補已被停止",
+                                }
                                 break
 
                         except InterruptedError:
@@ -212,10 +236,23 @@ class GUIBackfill:
                             # 記錄剩餘未處理的貨幣對
                             remaining = target_symbols[index:]
                             skipped_symbols.extend(remaining)
+                            backfill_summary[symbol] = {
+                                "status": "SKIPPED",
+                                "validation": "WARN",
+                                "risk": "任務被停止",
+                                "note": "回補已被停止",
+                            }
                             break
                         except BackfillInsertError as critical:
                             message_sender.error(symbol, f"回補錯誤: {critical}")
                             failed_symbols.append(symbol)  # 記錄失敗
+                            insert_error_count += 1
+                            backfill_summary[symbol] = {
+                                "status": "FAILED",
+                                "validation": "WARN",
+                                "risk": "插入錯誤",
+                                "note": str(critical)[:60],
+                            }
                             backfill_state_manager.set_error(str(critical))
                             gui.root.after(0, lambda e=critical: messagebox.showerror("回補錯誤", str(e)))
                             # 記錄剩餘未處理的貨幣對
@@ -224,23 +261,36 @@ class GUIBackfill:
                             break
                         except Exception as e:
                             failed_symbols.append(symbol)  # 記錄失敗
-                            
-                            if "資料驗證失敗" in str(e) or "資料驗證錯誤" in str(e):
+                            msg_text = str(e)
+
+                            if "資料驗證失敗" in msg_text or "資料驗證錯誤" in msg_text:
+                                validation_error_count += 1
+                                risk_label = "驗證錯誤"
                                 message_sender.error(symbol, f"資料驗證失敗: {e}")
                                 message_sender.warning(symbol, "回補操作已被終止，請檢查資料完整性")
                                 
                                 # 特別處理：如果是 API 返回0筆（可能是交易對不存在）
-                                if "API返回少筆 (0 <" in str(e) or "實際0筆" in str(e):
+                                if "API返回少筆 (0 <" in msg_text or "實際0筆" in msg_text:
                                     message_sender.warning(symbol, f"⚠️ {symbol} 可能不存在或已下架，建議從配置中移除")
                                     message_sender.info('', f"💡 提示：可以在 config/trading_config.py 中移除 {symbol}")
+                                    risk_label = "可能不存在或已下架"
                                 
                                 gui.root.after(0, lambda e=e: messagebox.showerror("資料驗證失敗",
                                     f"資料完整性檢查未通過:\n\n{str(e)}\n\n請檢查:\n• 網路連線是否正常\n• API是否正常運作\n• 時間範圍設定是否正確\n• 貨幣對是否存在"))
                             else:
+                                other_error_count += 1
+                                risk_label = "其他異常"
                                 import traceback
                                 message_sender.error(symbol, f"回補錯誤: {e}")
                                 message_sender.info(symbol, f"詳細錯誤: {traceback.format_exc()}")
                                 backfill_state_manager.set_error(str(e))
+
+                            backfill_summary[symbol] = {
+                                "status": "FAILED",
+                                "validation": "WARN",
+                                "risk": risk_label,
+                                "note": msg_text[:60],
+                            }
                             
                             # 記錄剩餘未處理的貨幣對
                             remaining = target_symbols[index:]
@@ -285,6 +335,33 @@ class GUIBackfill:
                     message_sender.info('', "")
                 
                 message_sender.info('', "=" * 60)
+
+                # ========== 將本次回補摘要提供給模板 C 顯示 ==========
+                try:
+                    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+
+                    try:
+                        finished_at = _dt.now(tz=_tz(_td(hours=8)))
+                    except Exception:
+                        finished_at = None
+
+                    summary_payload = {
+                        "total": len(target_symbols),
+                        "success": len(completed_symbols),
+                        "failed": len(failed_symbols),
+                        "skipped": len(skipped_symbols),
+                        "validation_errors": validation_error_count,
+                        "insert_errors": insert_error_count,
+                        "other_errors": other_error_count,
+                        "finished_at": finished_at,
+                        "symbols": backfill_summary,
+                    }
+
+                    if hasattr(gui, "update_backfill_template"):
+                        gui.root.after(0, lambda s=summary_payload: gui.update_backfill_template(s))
+                except Exception:
+                    # 回補摘要失敗不影響主要流程
+                    pass
                 
                 # 完成時恢復按鈕狀態
                 gui.root.after(0, lambda: gui.controls.backfill_btn.config(state="normal"))
@@ -330,6 +407,32 @@ class GUIBackfill:
             try:
                 from modules.monitors.multi_symbol_monitor import fetch_all_symbols_latest_minute
                 success = fetch_all_symbols_latest_minute(cat, progress_cb=gui_safe_log)
+
+                # 嘗試取得本次「最新 1 分鐘批量抓取」的驗證摘要，更新模板 B
+                try:
+                    from modules.utils.data.IMPORTANT_VALIDATION_MODULE import get_latest_daily_1m_summary
+                    from modules.utils.api.api_client import get_kline_fetch_stats, get_api_retry_stats
+                    from modules.utils.logger import get_log_rotation_stats
+
+                    summary = get_latest_daily_1m_summary()
+                    fetch_calls, total_rows = get_kline_fetch_stats()
+                    conn_retries, timeout_retries = get_api_retry_stats()
+                    rotation_count, _ = get_log_rotation_stats()
+
+                    if summary is not None and hasattr(gui, "update_latest_1m_template"):
+                        gui.root.after(
+                            0,
+                            lambda s=summary,
+                                   fc=fetch_calls,
+                                   tr=total_rows,
+                                   cr=conn_retries,
+                                   to=timeout_retries,
+                                   rc=rotation_count: gui.update_latest_1m_template(s, fc, tr, cr, to, rc),
+                        )
+                except Exception:
+                    # 摘要更新失敗不影響主要批量抓取流程
+                    pass
+
                 if success:
                     gui.root.after(0, lambda: gui.log(f"✅ 批量抓取完成 - 時間範圍: {today_start.strftime('%Y-%m-%d')} (UTC+8)"))
                     gui.root.after(0, lambda: gui.log(f"🔍 請檢查上方日誌中各交易對的插入結果"))

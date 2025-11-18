@@ -126,8 +126,8 @@ class SymbolSelectorDialog:
         self.checkbutton_frame = ttk.Frame(self.canvas)
         self.canvas_window = self.canvas.create_window((0, 0), window=self.checkbutton_frame, anchor='nw')
         
-        # 綁定滾輪事件
-        self.canvas.bind_all("<MouseWheel>", self.on_mousewheel)
+        # 綁定滾輪事件（只綁定在此 Canvas，避免視窗關閉後仍收到全域事件）
+        self.canvas.bind("<MouseWheel>", self.on_mousewheel)
         
         # 創建 Checkbutton 列表
         self.checkbox_vars = {}
@@ -326,7 +326,11 @@ class SymbolSelectorDialog:
     
     def on_mousewheel(self, event):
         """滾輪事件"""
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        try:
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        except Exception:
+            # Canvas 可能已被銷毀或 Tk 已關閉（對話框關閉後的殘留事件），忽略即可
+            pass
     
     def on_canvas_configure(self, event):
         """Canvas大小改變"""
@@ -366,11 +370,21 @@ class SymbolSelectorDialog:
             return
         
         self.result = selected
+        try:
+            # 關閉前解除滾輪綁定，避免銷毀後還有殘留事件
+            self.canvas.unbind("<MouseWheel>")
+        except Exception:
+            pass
         self.dialog.destroy()
     
     def on_cancel(self):
         """取消選擇"""
         self.result = None
+        try:
+            # 關閉前解除滾輪綁定，避免銷毀後還有殘留事件
+            self.canvas.unbind("<MouseWheel>")
+        except Exception:
+            pass
         self.dialog.destroy()
     
     def get_result(self):

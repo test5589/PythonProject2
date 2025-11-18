@@ -3,6 +3,7 @@
 import sys
 import os
 import re
+import json
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timezone, timedelta
@@ -28,6 +29,7 @@ from core.gui.monitor_board_template import (
     MAX_SYMBOLS,
     LINES_PER_SYMBOL,
     DYNAMIC_FIELD_SLOTS,
+    AVAILABLE_TEMPLATES,
 )
 
 # 子模組
@@ -63,6 +65,16 @@ class MainGUI:
         self.monitor_start_time_str = ""
         self.monitor_end_time_str = ""
         self.session_symbol_stats = {}
+        # 模板設定檔路徑與目前使用模板（預設為上次關閉時的模板，若失敗則為 "A"）
+        self.template_config_file = os.path.join(PROJECT_ROOT, "data", "gui_template.json")
+        self.current_template = self._load_current_template()
+        # 最新 1 分鐘批量抓取驗證的摘要快取（模板 B 使用）
+        self.latest_1m_summary = None
+        self.latest_1m_fetch_stats = None
+        self.latest_1m_retry_stats = None
+        self.latest_1m_log_rotation = None
+        # 回補任務摘要快取（模板 C 使用）
+        self.backfill_summary_cache = None
         # Grid 模板設定：預設可見 25 行，最多擴充到 200 行，每行使用 LOG_TEXT_WIDTH 格
         self.visible_rows = 25
         self.max_extra_rows = 175  # 200 - 25
@@ -133,7 +145,7 @@ class MainGUI:
 
         # 套用靜態模板（由 core/gui/monitor_board_template.py 定義）
         try:
-            apply_template(self)
+            apply_template(self, getattr(self, "current_template", "A"))
         except Exception:
             pass
 
@@ -159,6 +171,10 @@ class MainGUI:
     def _on_closing(self):
         """程序關閉時的清理工作"""
         import os
+        try:
+            self._save_current_template()
+        except Exception:
+            pass
         # 清空本次 GUI session 的暫存日誌（保留長期統計檔 monitor_summary_file）
         if os.path.exists(self.temp_log_file):
             os.remove(self.temp_log_file)
@@ -175,6 +191,356 @@ class MainGUI:
             with open(self.temp_log_file, 'a', encoding='utf-8') as f:
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 f.write(f"[{timestamp}] {msg}\n")
+        except Exception:
+            pass
+
+    # ======= 模板管理（A/B 等） =======
+    def _load_current_template(self) -> str:
+        """從設定檔載入最後一次使用的模板代號，失敗則回傳 "A"。"""
+
+        try:
+            path = getattr(self, "template_config_file", None)
+            if not path or not os.path.exists(path):
+                return "A"
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            tpl = data.get("current_template")
+            if tpl in AVAILABLE_TEMPLATES:
+                return tpl
+        except Exception:
+            pass
+        return "A"
+
+    def _save_current_template(self) -> None:
+        """將目前使用的模板代號寫入設定檔。"""
+
+        try:
+            path = getattr(self, "template_config_file", None)
+            if not path:
+                return
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tpl = getattr(self, "current_template", "A")
+            data = {"current_template": tpl}
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def set_monitor_template(self, template_name: str) -> None:
+        """切換 1 秒/批量監控模板（例如 A/B），並套用到畫面。"""
+
+        if not template_name or template_name not in AVAILABLE_TEMPLATES:
+            return
+
+        if getattr(self, "current_template", None) == template_name:
+            return
+
+        self.current_template = template_name
+        try:
+            self._save_current_template()
+        except Exception:
+            pass
+
+        # 重新初始化格子並套用新模板
+        try:
+            self._init_grid()
+            apply_template(self, template_name)
+        except Exception:
+            return
+
+        # 切到 B：若已有 1 分鐘批量摘要快取，套用到畫面
+        if template_name == "B":
+            try:
+                self._render_template_b_from_cache()
+            except Exception:
+                pass
+        elif template_name == "C":
+            # 切到 C：若已有回補摘要快取，套用到畫面
+            try:
+                self._render_template_c_from_cache()
+            except Exception:
+                pass
+        elif template_name == "A":
+            # 切回 A：把目前的 summary/time 再寫到模板 A 的 GLOBAL 欄位
+            try:
+                summary = getattr(self, "monitor_summary", {}) or {}
+                field_map = {
+                    "alert": "alert_count",
+                    "false_alert": "false_alert_count",
+                    "system": "system_hint_count",
+                    "log": "log_count",
+                }
+                for kind, field in field_map.items():
+                    value = str(summary.get(kind, 0))
+                    self._update_dynamic_field("GLOBAL", field, value)
+
+                start = getattr(self, "monitor_start_time_str", "") or ""
+                end = getattr(self, "monitor_end_time_str", "") or ""
+                if start:
+                    self._update_dynamic_field("GLOBAL", "monitor_start", start)
+                if end:
+                    self._update_dynamic_field("GLOBAL", "monitor_end", end)
+            except Exception:
+                pass
+
+        try:
+            self._schedule_render()
+        except Exception:
+            pass
+
+    def update_latest_1m_template(
+        self,
+        summary: dict,
+        fetch_calls: int,
+        total_rows: int,
+        conn_retries: int,
+        timeout_retries: int,
+        rotation_count: int,
+    ) -> None:
+        """更新模板 B 用的最新 1 分鐘批量抓取摘要快取，必要時重繪畫面。"""
+
+        self.latest_1m_summary = summary
+        self.latest_1m_fetch_stats = {
+            "fetch_calls": fetch_calls,
+            "total_rows": total_rows,
+        }
+        self.latest_1m_retry_stats = {
+            "conn": conn_retries,
+            "timeout": timeout_retries,
+        }
+        self.latest_1m_log_rotation = {
+            "rotation_count": rotation_count,
+        }
+
+        if getattr(self, "current_template", "A") != "B":
+            return
+
+        try:
+            self._render_template_b_from_cache()
+        except Exception:
+            pass
+
+    def _render_template_b_from_cache(self) -> None:
+        """根據快取的最新 1 分鐘摘要資料，將內容填入模板 B 的動態欄位。"""
+
+        summary = getattr(self, "latest_1m_summary", None)
+        if not summary:
+            return
+
+        from datetime import datetime as _dt
+        from config.trading_config import TradingConfig
+
+        results = summary.get("results") or {}
+        real_alerts = summary.get("real_alerts") or {}
+        pseudo_alerts = summary.get("pseudo_alerts") or {}
+        fully_ok = summary.get("fully_ok") or []
+        start_time = summary.get("start_time")
+        end_time = summary.get("end_time")
+
+        fetch_stats = getattr(self, "latest_1m_fetch_stats", None) or {}
+        retry_stats = getattr(self, "latest_1m_retry_stats", None) or {}
+        log_rot = getattr(self, "latest_1m_log_rotation", None) or {}
+
+        # ---- GLOBAL_B 數字 ----
+        try:
+            self._update_dynamic_field("B_GLOBAL", "real_alert_count", str(len(real_alerts)))
+            self._update_dynamic_field("B_GLOBAL", "pseudo_alert_count", str(len(pseudo_alerts)))
+            self._update_dynamic_field("B_GLOBAL", "ok_count", str(len(fully_ok)))
+        except Exception:
+            pass
+
+        try:
+            total_symbols = len(results)
+            success_symbols = sum(1 for info in results.values() if (info or {}).get("api_fetched", 0) > 0)
+            total_inserted = fetch_stats.get("total_rows")
+            if total_inserted is None:
+                total_inserted = ""
+            self._update_dynamic_field("B_GLOBAL", "total_symbols", str(total_symbols))
+            self._update_dynamic_field("B_GLOBAL", "success_symbols", str(success_symbols))
+            self._update_dynamic_field("B_GLOBAL", "total_inserted", str(total_inserted))
+        except Exception:
+            pass
+
+        # 批次時間範圍（轉為台北時間顯示）
+        try:
+            tw_tz = timezone(timedelta(hours=8))
+            if isinstance(start_time, _dt):
+                start_tw = start_time.astimezone(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                start_tw = ""
+            if isinstance(end_time, _dt):
+                end_tw = end_time.astimezone(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                end_tw = ""
+            self._update_dynamic_field("B_GLOBAL", "range_start", start_tw)
+            self._update_dynamic_field("B_GLOBAL", "range_end", end_tw)
+        except Exception:
+            pass
+
+        # API 重試與 LOG 輪替
+        try:
+            conn = retry_stats.get("conn", "")
+            timeout = retry_stats.get("timeout", "")
+            rotation_count = log_rot.get("rotation_count", "")
+            self._update_dynamic_field("B_GLOBAL", "api_conn_retries", str(conn))
+            self._update_dynamic_field("B_GLOBAL", "api_timeout_retries", str(timeout))
+            self._update_dynamic_field("B_GLOBAL", "log_rotation_count", str(rotation_count))
+        except Exception:
+            pass
+
+        # ---- 每個貨幣對三行狀態 ----
+        try:
+            symbols = TradingConfig.SUPPORTED_SYMBOLS[:MAX_SYMBOLS]
+        except Exception:
+            symbols = []
+
+        for sym in symbols:
+            info = results.get(sym)
+            if not info:
+                continue
+
+            api_ok = bool(info.get("api_ok"))
+            db_ok = bool(info.get("db_ok"))
+            api_fetched = info.get("api_fetched", 0)
+            db_count = info.get("db_count", 0)
+            min_acc = info.get("min_acceptable", 0)
+            max_acc = info.get("max_acceptable", 0)
+
+            # 整體狀態
+            if not db_ok:
+                state = "ALERT"
+            elif db_ok and not api_ok:
+                state = "FEW"
+            else:
+                state = "OK"
+
+            # API / DB 狀態
+            if api_fetched < min_acc:
+                api_status = "少"
+            elif api_fetched > max_acc:
+                api_status = "多"
+            else:
+                api_status = "OK"
+
+            if db_count < min_acc:
+                db_status = "少"
+            elif db_count > max_acc:
+                db_status = "多"
+            else:
+                db_status = "OK"
+
+            validation_status = "PASS" if api_ok and db_ok else "WARN"
+
+            # 簡短警示文字
+            if not db_ok:
+                warning = "ALERT: DB 1m 筆數不足，今日 1m 可能缺 K 棒"
+            elif db_ok and not api_ok:
+                warning = "FAKE: DB 已齊，本次 API 新增偏少（複檢提醒）"
+            else:
+                warning = "OK: API & DB 均在合理範圍內"
+
+            try:
+                self._update_dynamic_field(sym, "b_state", state)
+                self._update_dynamic_field(sym, "b_inserted", str(api_fetched))
+                self._update_dynamic_field(sym, "b_db_count", str(db_count))
+                self._update_dynamic_field(sym, "b_api_status", api_status)
+                self._update_dynamic_field(sym, "b_db_status", db_status)
+                self._update_dynamic_field(sym, "b_validation_status", validation_status)
+                self._update_dynamic_field(sym, "b_warning", warning)
+            except Exception:
+                continue
+
+        try:
+            self._schedule_render()
+        except Exception:
+            pass
+
+    def update_backfill_template(self, summary: dict) -> None:
+        """更新模板 C 用的回補任務摘要快取，必要時重繪畫面。"""
+
+        self.backfill_summary_cache = summary or {}
+
+        if getattr(self, "current_template", "A") != "C":
+            return
+
+        try:
+            self._render_template_c_from_cache()
+        except Exception:
+            pass
+
+    def _render_template_c_from_cache(self) -> None:
+        """根據快取的回補摘要資料，將內容填入模板 C 的動態欄位。"""
+
+        summary = getattr(self, "backfill_summary_cache", None) or {}
+        if not summary:
+            return
+
+        total = summary.get("total", 0)
+        success = summary.get("success", 0)
+        failed = summary.get("failed", 0)
+        skipped = summary.get("skipped", 0)
+        val_err = summary.get("validation_errors", 0)
+        ins_err = summary.get("insert_errors", 0)
+        other_err = summary.get("other_errors", 0)
+        finished_at = summary.get("finished_at")
+        symbols_info = summary.get("symbols") or {}
+
+        # 全域統計欄位
+        try:
+            self._update_dynamic_field("C_GLOBAL", "total_symbols", str(total))
+            self._update_dynamic_field("C_GLOBAL", "success_count", str(success))
+            self._update_dynamic_field("C_GLOBAL", "failed_count", str(failed))
+            self._update_dynamic_field("C_GLOBAL", "skipped_count", str(skipped))
+        except Exception:
+            pass
+
+        try:
+            self._update_dynamic_field("C_GLOBAL", "validation_errors", str(val_err))
+            self._update_dynamic_field("C_GLOBAL", "insert_errors", str(ins_err))
+            self._update_dynamic_field("C_GLOBAL", "other_errors", str(other_err))
+        except Exception:
+            pass
+
+        # 回補完成時間（台北時間）
+        try:
+            from datetime import datetime as _dt
+
+            if isinstance(finished_at, _dt):
+                tw_tz = timezone(timedelta(hours=8))
+                finished_str = finished_at.astimezone(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                finished_str = str(finished_at) if finished_at else ""
+            self._update_dynamic_field("C_GLOBAL", "finished_at", finished_str)
+        except Exception:
+            pass
+
+        # 各貨幣對回補結果
+        try:
+            from config.trading_config import TradingConfig
+            symbols = TradingConfig.SUPPORTED_SYMBOLS
+        except Exception:
+            symbols = []
+
+        for sym in symbols:
+            info = symbols_info.get(sym)
+            if not info:
+                continue
+
+            status = str(info.get("status", ""))
+            validation = str(info.get("validation", ""))
+            risk = str(info.get("risk", ""))
+            note = str(info.get("note", ""))
+
+            try:
+                self._update_dynamic_field(sym, "c_status", status)
+                self._update_dynamic_field(sym, "c_validation", validation)
+                self._update_dynamic_field(sym, "c_risk", risk)
+                self._update_dynamic_field(sym, "c_note", note)
+            except Exception:
+                continue
+
+        try:
+            self._schedule_render()
         except Exception:
             pass
 

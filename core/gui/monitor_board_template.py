@@ -29,8 +29,8 @@ LINES_PER_SYMBOL = 8
 DYNAMIC_FIELD_SLOTS: Dict[Tuple[str, str], Tuple[int, int, int]] = {}
 
 
-def _build_template_segments() -> List[Tuple[int, int, str]]:
-    """根據 TradingConfig.SUPPORTED_SYMBOLS 前 MAX_SYMBOLS 個貨幣對，
+def _build_template_segments_a() -> List[Tuple[int, int, str]]:
+    """模板 A：根據 TradingConfig.SUPPORTED_SYMBOLS 前 MAX_SYMBOLS 個貨幣對，
     從第 1 行開始依序產生每個 8 行的監控區塊模板。
 
     每個區塊行內容樣式（以 BTCUSDT 為例）：
@@ -196,21 +196,315 @@ def _build_template_segments() -> List[Tuple[int, int, str]]:
     return segments
 
 
-# (row, col, text) 三元組列表，row/col 一律 1 起算。
-# 會根據目前交易設定中的前 MAX_SYMBOLS 個貨幣對，自動產生模板。
-TEMPLATE_SEGMENTS: List[Tuple[int, int, str]] = _build_template_segments()
+def _build_template_segments_b() -> List[Tuple[int, int, str]]:
+    """模板 B：最新 1 分鐘批量抓取結果專用版面。
+
+    版面設計重點：
+    - 第 1~4 行：顯示本次批量抓取的整體 summary（真警報/假警報/完全OK、交易對總數、總新增筆數、時間範圍、API 重試與 LOG 輪替統計）。
+    - 從第 5 行開始，每個貨幣對使用 3 行顯示本次 1 分鐘驗證結果：
+        1) 狀態 + 新增筆數 + DB 筆數
+        2) API / DB 狀態與整體驗證結果
+        3) 簡短警示文字（真警報 / 假警報 / 完全通過等）
+    """
+
+    global DYNAMIC_FIELD_SLOTS
+
+    segments: List[Tuple[int, int, str]] = []
+
+    # ===== 頂部全域 summary 區 =====
+    # 第 1 行：真警報 / 假警報 / 完全 OK 數量
+    line1 = "真警報(DB不足):"
+    real_col = len(line1) + 1
+    real_width = 4
+    line1 += " " * real_width
+    line1 += "  假警報(API少DB正常):"
+    pseudo_col = len(line1) + 1
+    pseudo_width = 4
+    line1 += " " * pseudo_width
+    line1 += "  完全OK:"
+    ok_col = len(line1) + 1
+    ok_width = 4
+    line1 += " " * ok_width
+    segments.append((1, 1, line1))
+
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "real_alert_count")] = (1, real_col, real_width)
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "pseudo_alert_count")] = (1, pseudo_col, pseudo_width)
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "ok_count")] = (1, ok_col, ok_width)
+
+    # 第 2 行：交易對總數 / 成功數 / 總新增筆數
+    line2 = "交易對總數:"
+    total_sym_col = len(line2) + 1
+    total_sym_width = 4
+    line2 += " " * total_sym_width
+    line2 += "  成功抓取:"
+    success_sym_col = len(line2) + 1
+    success_sym_width = 4
+    line2 += " " * success_sym_width
+    line2 += "  總新增筆數:"
+    total_ins_col = len(line2) + 1
+    total_ins_width = 8
+    line2 += " " * total_ins_width
+    segments.append((2, 1, line2))
+
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "total_symbols")] = (2, total_sym_col, total_sym_width)
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "success_symbols")] = (2, success_sym_col, success_sym_width)
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "total_inserted")] = (2, total_ins_col, total_ins_width)
+
+    # 第 3 行：批次時間範圍（台北時間）
+    line3 = "批次時間:"
+    start_col = len(line3) + 1
+    start_width = 19  # yyyy-mm-dd HH:MM:SS
+    line3 += " " * start_width
+    line3 += " → "
+    end_col = len(line3) + 1
+    end_width = 19
+    line3 += " " * end_width
+    line3 += " (UTC+8)"
+    segments.append((3, 1, line3))
+
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "range_start")] = (3, start_col, start_width)
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "range_end")] = (3, end_col, end_width)
+
+    # 第 4 行：API 重試與 LOG 輪替統計
+    line4 = "API重試: 連線錯誤="
+    conn_col = len(line4) + 1
+    conn_width = 4
+    line4 += " " * conn_width
+    line4 += " 次, 超時="
+    timeout_col = len(line4) + 1
+    timeout_width = 4
+    line4 += " " * timeout_width
+    line4 += " 次  |  LOG輪替錯誤="
+    rot_col = len(line4) + 1
+    rot_width = 6
+    line4 += " " * rot_width
+    line4 += " 次"
+    segments.append((4, 1, line4))
+
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "api_conn_retries")] = (4, conn_col, conn_width)
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "api_timeout_retries")] = (4, timeout_col, timeout_width)
+    DYNAMIC_FIELD_SLOTS[("B_GLOBAL", "log_rotation_count")] = (4, rot_col, rot_width)
+
+    # ===== 每個貨幣對 3 行狀態區 =====
+    symbols = TradingConfig.SUPPORTED_SYMBOLS[:MAX_SYMBOLS]
+    for idx, sym in enumerate(symbols):
+        # 每個 symbol 區塊占用 3 行，從第 5 行開始往下排
+        base_row = idx * 3 + 5  # 1-based 行號
+
+        # 1) 整體狀態： 狀態 / 新增 / DB 筆數
+        line_s1 = f"[{sym}] 狀態="
+        state_col = len(line_s1) + 1
+        state_width = 6
+        line_s1 += " " * state_width
+        line_s1 += "  新增="
+        inserted_col = len(line_s1) + 1
+        inserted_width = 6
+        line_s1 += " " * inserted_width
+        line_s1 += "  DB="
+        db_col = len(line_s1) + 1
+        db_width = 7
+        line_s1 += " " * db_width
+        segments.append((base_row + 0, 1, line_s1))
+
+        DYNAMIC_FIELD_SLOTS[(sym, "b_state")] = (base_row + 0, state_col, state_width)
+        DYNAMIC_FIELD_SLOTS[(sym, "b_inserted")] = (base_row + 0, inserted_col, inserted_width)
+        DYNAMIC_FIELD_SLOTS[(sym, "b_db_count")] = (base_row + 0, db_col, db_width)
+
+        # 2) API / DB 狀態與整體驗證結果
+        line_s2 = "API:"
+        api_col = len(line_s2) + 1
+        api_width = 4
+        line_s2 += " " * api_width
+        line_s2 += "  DB:"
+        dbs_col = len(line_s2) + 1
+        dbs_width = 4
+        line_s2 += " " * dbs_width
+        line_s2 += "  驗證:"
+        val_col = len(line_s2) + 1
+        val_width = 4
+        line_s2 += " " * val_width
+        segments.append((base_row + 1, 1, line_s2))
+
+        DYNAMIC_FIELD_SLOTS[(sym, "b_api_status")] = (base_row + 1, api_col, api_width)
+        DYNAMIC_FIELD_SLOTS[(sym, "b_db_status")] = (base_row + 1, dbs_col, dbs_width)
+        DYNAMIC_FIELD_SLOTS[(sym, "b_validation_status")] = (base_row + 1, val_col, val_width)
+
+        # 3) 簡短警示文字
+        line_s3 = "警示:"
+        warn_col = len(line_s3) + 1
+        warn_width = 70
+        line_s3 += " " * warn_width
+        segments.append((base_row + 2, 1, line_s3))
+
+        DYNAMIC_FIELD_SLOTS[(sym, "b_warning")] = (base_row + 2, warn_col, warn_width)
+
+    return segments
 
 
-def apply_template(gui) -> None:
-    """將本檔案定義的模板內容套用到 MainGUI 的格子畫板上。
+def _build_template_segments_c() -> List[Tuple[int, int, str]]:
+    """模板 C：回補任務專用版面。
+
+    設計重點：
+    - 頂部 3 行顯示本次回補任務的整體摘要：
+        1) 回補貨幣對總數、成功/失敗/跳過數量。
+        2) 錯誤分類統計：驗證錯誤/插入錯誤/其他異常。
+        3) 回補完成時間（台北時間）。
+    - 從第 5 行開始，每個貨幣對使用 3 行顯示回補結果：
+        1) 狀態（SUCCESS/FAILED/SKIPPED）與驗證結果（PASS/WARN）。
+        2) 風險類型簡述（例如 驗證錯誤 / 插入錯誤 / 可能下架 / OK）。
+        3) 備註欄位，用於顯示最後一條重要訊息簡短說明。
+    """
+
+    global DYNAMIC_FIELD_SLOTS
+
+    segments: List[Tuple[int, int, str]] = []
+
+    # ===== 頂部回補總覽區 =====
+    # 第 1 行：總數 / 成功 / 失敗 / 跳過
+    line1 = "回補總覽: 總數="
+    total_col = len(line1) + 1
+    total_width = 4
+    line1 += " " * total_width
+    line1 += "  成功="
+    success_col = len(line1) + 1
+    success_width = 4
+    line1 += " " * success_width
+    line1 += "  失敗="
+    fail_col = len(line1) + 1
+    fail_width = 4
+    line1 += " " * fail_width
+    line1 += "  跳過="
+    skip_col = len(line1) + 1
+    skip_width = 4
+    line1 += " " * skip_width
+    segments.append((1, 1, line1))
+
+    DYNAMIC_FIELD_SLOTS[("C_GLOBAL", "total_symbols")] = (1, total_col, total_width)
+    DYNAMIC_FIELD_SLOTS[("C_GLOBAL", "success_count")] = (1, success_col, success_width)
+    DYNAMIC_FIELD_SLOTS[("C_GLOBAL", "failed_count")] = (1, fail_col, fail_width)
+    DYNAMIC_FIELD_SLOTS[("C_GLOBAL", "skipped_count")] = (1, skip_col, skip_width)
+
+    # 第 2 行：錯誤分類統計
+    line2 = "錯誤統計: 驗證錯誤="
+    val_err_col = len(line2) + 1
+    val_err_width = 4
+    line2 += " " * val_err_width
+    line2 += "  插入錯誤="
+    ins_err_col = len(line2) + 1
+    ins_err_width = 4
+    line2 += " " * ins_err_width
+    line2 += "  其他異常="
+    other_err_col = len(line2) + 1
+    other_err_width = 4
+    line2 += " " * other_err_width
+    segments.append((2, 1, line2))
+
+    DYNAMIC_FIELD_SLOTS[("C_GLOBAL", "validation_errors")] = (2, val_err_col, val_err_width)
+    DYNAMIC_FIELD_SLOTS[("C_GLOBAL", "insert_errors")] = (2, ins_err_col, ins_err_width)
+    DYNAMIC_FIELD_SLOTS[("C_GLOBAL", "other_errors")] = (2, other_err_col, other_err_width)
+
+    # 第 3 行：回補完成時間（台北時間）
+    line3 = "回補完成時間:"
+    finish_col = len(line3) + 1
+    finish_width = 19  # yyyy-mm-dd HH:MM:SS
+    line3 += " " * finish_width
+    line3 += " (UTC+8)"
+    segments.append((3, 1, line3))
+
+    DYNAMIC_FIELD_SLOTS[("C_GLOBAL", "finished_at")] = (3, finish_col, finish_width)
+
+    # ===== 每個貨幣對 3 行狀態區（左右分欄排版） =====
+    symbols = TradingConfig.SUPPORTED_SYMBOLS
+
+    # 每個貨幣對區塊使用 3 行高度，左右各一欄（兩欄佈局）
+    block_rows = 3
+    cols_per_row = 2
+    block_width = 44  # 每欄最大寬度，搭配 LOG_TEXT_WIDTH = 90，左右兩欄剛好
+    start_row = 5
+
+    for idx, sym in enumerate(symbols):
+        # row_group: 第幾組 3 行區塊（從 0 起算）
+        # col_group: 位於當列的左欄(0)或右欄(1)
+        row_group = idx // cols_per_row
+        col_group = idx % cols_per_row
+
+        base_row = start_row + row_group * block_rows  # 1-based 行號
+        base_col = 1 + col_group * block_width         # 1-based 起算欄位
+
+        # 1) 狀態 + 驗證結果
+        line_s1 = f"[{sym}] 狀態="
+        local_status_col = len(line_s1) + 1
+        status_width = 8
+        line_s1 += " " * status_width
+        line_s1 += "  驗證="
+        local_valid_col = len(line_s1) + 1
+        valid_width = 4
+        line_s1 += " " * valid_width
+        segments.append((base_row + 0, base_col, line_s1))
+
+        status_col = base_col + local_status_col - 1
+        valid_col = base_col + local_valid_col - 1
+        DYNAMIC_FIELD_SLOTS[(sym, "c_status")] = (base_row + 0, status_col, status_width)
+        DYNAMIC_FIELD_SLOTS[(sym, "c_validation")] = (base_row + 0, valid_col, valid_width)
+
+        # 2) 風險類型
+        line_s2 = "風險:"
+        local_risk_col = len(line_s2) + 1
+        risk_width = 30
+        line_s2 += " " * risk_width
+        segments.append((base_row + 1, base_col, line_s2))
+
+        risk_col = base_col + local_risk_col - 1
+        DYNAMIC_FIELD_SLOTS[(sym, "c_risk")] = (base_row + 1, risk_col, risk_width)
+
+        # 3) 備註/最後訊息
+        line_s3 = "備註:"
+        local_note_col = len(line_s3) + 1
+        note_width = 40  # 為了兩欄排版縮短備註欄寬
+        line_s3 += " " * note_width
+        segments.append((base_row + 2, base_col, line_s3))
+
+        note_col = base_col + local_note_col - 1
+        DYNAMIC_FIELD_SLOTS[(sym, "c_note")] = (base_row + 2, note_col, note_width)
+
+    return segments
+
+
+_TEMPLATE_BUILDERS = {
+    "A": _build_template_segments_a,
+    "B": _build_template_segments_b,
+    "C": _build_template_segments_c,
+}
+
+# 對外暴露可用模板清單，供 GUI 給使用者選擇
+AVAILABLE_TEMPLATES = sorted(_TEMPLATE_BUILDERS.keys())
+
+
+def apply_template(gui, template_name: str = "A") -> None:
+    """將指定模板內容套用到 MainGUI 的格子畫板上。
 
     Args:
         gui: MainGUI 實例（必須提供 _set_grid_segment 方法）
+        template_name: 模板代號，例如 "A"、"B"。
     """
     if not hasattr(gui, "_set_grid_segment"):
         return
 
-    for row, col, text in TEMPLATE_SEGMENTS:
+    global DYNAMIC_FIELD_SLOTS
+    # 每次套用模板時重建動態欄位座標（就地清空，避免重新綁定導致外部引用失效）
+    DYNAMIC_FIELD_SLOTS.clear()
+
+    builder = _TEMPLATE_BUILDERS.get(template_name) or _TEMPLATE_BUILDERS["A"]
+    try:
+        segments = builder()
+    except Exception:
+        # 若建構模板失敗，嘗試退回模板 A
+        try:
+            segments = _TEMPLATE_BUILDERS["A"]()
+        except Exception:
+            return
+
+    for row, col, text in segments:
         # 轉成 0-based index 給 _set_grid_segment 使用
         r_idx = max(0, row - 1)
         c_idx = max(0, col - 1)

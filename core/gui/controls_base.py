@@ -23,6 +23,7 @@ from .layout_config import (
     WEIGHT_BUTTON_PADY,
     WEIGHT_BUTTON_PADX,
 )
+from .monitor_board_template import AVAILABLE_TEMPLATES
 
 class ControlsBase:
     """GUI基礎控制項管理器"""
@@ -59,6 +60,29 @@ class ControlsBase:
         self.backfill_interval_combo.pack(side=tk.LEFT, padx=(0, 10))
 
         ttk.Label(control_options_frame, text="(僅回補用)", font=("Arial", 8), foreground="gray").pack(side=tk.LEFT, padx=(0, 15))
+
+        # 模板選擇（A/B ...），以 MainGUI.current_template 為預設
+        ttk.Label(control_options_frame, text="模板:").pack(side=tk.LEFT, padx=(0, 5))
+        self.template_var = tk.StringVar(value=getattr(self.gui, "current_template", "A"))
+        self.template_combo = ttk.Combobox(
+            control_options_frame,
+            values=AVAILABLE_TEMPLATES,
+            width=4,
+            state="readonly",
+            textvariable=self.template_var,
+        )
+        self.template_combo.pack(side=tk.LEFT, padx=(0, 10))
+
+        def _on_template_changed(event=None):
+            tpl = self.template_var.get()
+            gui = self.gui
+            if hasattr(gui, "set_monitor_template"):
+                try:
+                    gui.set_monitor_template(tpl)
+                except Exception:
+                    pass
+
+        self.template_combo.bind("<<ComboboxSelected>>", _on_template_changed)
         
     def create_backfill_controls(self, root):
         """創建回補控制區域"""

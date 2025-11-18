@@ -43,6 +43,9 @@ VALIDATION_STATE_FILE = os.path.join("data", "latest_1m_validation_state.json")
 # 1 分鐘驗證結果暫存：僅在「最新 1 分鐘批量抓取」流程中使用，用來統一輸出總結
 _daily_1m_results: Dict[str, Dict[str, Any]] = {}
 
+# 最近一次「最新 1 分鐘批量驗證」的彙總快取，供 GUI 等上層讀取摘要使用
+_last_daily_1m_summary: Optional[Dict[str, Any]] = None
+
 # 1 分鐘驗證參考時間範圍（本程式執行期間，同一天只初始化一次）
 _daily_1m_ref_start_local: Optional[datetime] = None
 _daily_1m_ref_end_local: Optional[datetime] = None
@@ -685,6 +688,21 @@ def summarize_daily_1m_results(
 
     lines.append(f"✅ API & DB 同時通過的交易對數量: {len(fully_ok)} 檔")
 
+    # 將本次摘要內容快取起來，供外部（例如 GUI 模板 B）讀取結構化結果
+    try:
+        global _last_daily_1m_summary
+        _last_daily_1m_summary = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "real_alerts": real_alerts,
+            "pseudo_alerts": pseudo_alerts,
+            "fully_ok": fully_ok,
+            "results": dict(_daily_1m_results),
+        }
+    except Exception:
+        # 摘要快取失敗不影響主要驗證與日誌輸出
+        pass
+
     summary = "\n".join(lines)
     if progress_cb:
         # 由呼叫方（例如 MultiSymbolMonitor）統一負責輸出，避免在終端機出現兩份相同總結
@@ -692,6 +710,26 @@ def summarize_daily_1m_results(
     else:
         # 單獨呼叫時，才直接由 data_validator logger 輸出
         logger.info(summary)
+
+
+def get_latest_daily_1m_summary() -> Optional[Dict[str, Any]]:
+    """取得最近一次 summarize_daily_1m_results 的彙總結果。
+
+    回傳內容包含：
+    - start_time / end_time: 驗證時間範圍（datetime）
+    - real_alerts / pseudo_alerts: 各類警報的 symbol 對應資訊
+    - fully_ok: API & DB 均通過的 symbol 清單
+    - results: 每個 symbol 的原始驗證結果（_daily_1m_results 的淺拷貝）
+    若尚未執行任何批量驗證，則回傳 None。
+    """
+
+    try:
+        if _last_daily_1m_summary is None:
+            return None
+        # 回傳淺拷貝，避免呼叫端意外修改內部狀態
+        return dict(_last_daily_1m_summary)
+    except Exception:
+        return None
 
 
 # 全域驗證器實例
