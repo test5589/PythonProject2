@@ -11,7 +11,7 @@ from config.trading_config import TradingConfig
 class SymbolSelectorDialog:
     """貨幣對選擇器對話框"""
     
-    def __init__(self, parent, category="crypto", current_selection=None):
+    def __init__(self, parent, category="crypto", current_selection=None, custom_available_symbols=None, max_selection=None):
         """
         初始化選擇器
         
@@ -19,15 +19,19 @@ class SymbolSelectorDialog:
             parent: 父窗口
             category: 資產分類 ('crypto' 或 'stock')
             current_selection: 當前已選擇的貨幣對列表
+            custom_available_symbols: 自訂可選貨幣對列表（選填，若提供則僅顯示這些）
         """
         self.parent = parent
         self.category = category.lower()
         self.result = None  # 用戶選擇的結果
         self.current_selection = current_selection or []
+        self.custom_available_symbols = custom_available_symbols
+        # 最大可選數量（若外部未提供，沿用 TradingConfig.MAX_BACKFILL_SYMBOLS）
+        self.max_selection = max_selection or TradingConfig.MAX_BACKFILL_SYMBOLS
         
         # 創建對話框
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f"選擇回補貨幣對 - {self.get_category_name()}")
+        self.dialog.title(f"選擇貨幣對 - {self.get_category_name()}")
         self.dialog.geometry("800x600")
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -50,6 +54,9 @@ class SymbolSelectorDialog:
     
     def get_available_symbols(self):
         """獲取可用的貨幣對列表"""
+        if self.custom_available_symbols:
+            return self.custom_available_symbols
+            
         if self.category == "crypto":
             return TradingConfig.CRYPTO_SYMBOLS
         elif self.category == "stock":
@@ -106,7 +113,7 @@ class SymbolSelectorDialog:
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         # 說明標籤
-        info_text = f"💡 提示：最多選擇 {TradingConfig.MAX_BACKFILL_SYMBOLS} 個貨幣對進行回補"
+        info_text = f"💡 提示：最多選擇 {self.max_selection} 個貨幣對進行回補"
         ttk.Label(list_frame, text=info_text, foreground="gray").pack(anchor=tk.W, pady=(0, 5))
         
         # 創建帶滾動條的Canvas
@@ -232,10 +239,10 @@ class SymbolSelectorDialog:
         selected_count = sum(1 for var in self.checkbox_vars.values() if var.get())
         
         # 檢查是否超過限制
-        if selected_count > TradingConfig.MAX_BACKFILL_SYMBOLS:
+        if selected_count > self.max_selection:
             messagebox.showwarning(
                 "選擇超限",
-                f"最多只能選擇 {TradingConfig.MAX_BACKFILL_SYMBOLS} 個貨幣對！\n"
+                f"最多只能選擇 {self.max_selection} 個貨幣對！\n"
                 f"請取消一些選擇。"
             )
             # 取消最後一個選擇
@@ -250,8 +257,8 @@ class SymbolSelectorDialog:
         """更新選中數量顯示"""
         selected_count = sum(1 for var in self.checkbox_vars.values() if var.get())
         self.count_label.config(
-            text=f"已選: {selected_count}/{TradingConfig.MAX_BACKFILL_SYMBOLS}",
-            foreground="red" if selected_count > TradingConfig.MAX_BACKFILL_SYMBOLS else "blue"
+            text=f"已選: {selected_count}/{self.max_selection}",
+            foreground="red" if selected_count > self.max_selection else "blue"
         )
     
     def select_all(self):
@@ -260,13 +267,13 @@ class SymbolSelectorDialog:
         visible_symbols = [symbol for symbol in self.available_symbols if self.checkbuttons[symbol].winfo_ismapped()]
         
         # 計算可以選擇多少個
-        can_select = min(len(visible_symbols), TradingConfig.MAX_BACKFILL_SYMBOLS)
+        can_select = min(len(visible_symbols), self.max_selection)
         
-        if len(visible_symbols) > TradingConfig.MAX_BACKFILL_SYMBOLS:
+        if len(visible_symbols) > self.max_selection:
             messagebox.showinfo(
                 "全選提示",
                 f"當前可見 {len(visible_symbols)} 個貨幣對，\n"
-                f"但最多只能選擇 {TradingConfig.MAX_BACKFILL_SYMBOLS} 個。\n\n"
+                f"但最多只能選擇 {self.max_selection} 個。\n\n"
                 f"將選擇前 {can_select} 個。"
             )
         
@@ -295,11 +302,11 @@ class SymbolSelectorDialog:
         # 計算反選後的數量
         will_be_selected = len(visible_symbols) - current_selected
         
-        if will_be_selected > TradingConfig.MAX_BACKFILL_SYMBOLS:
+        if will_be_selected > self.max_selection:
             messagebox.showwarning(
                 "反選超限",
                 f"反選後將有 {will_be_selected} 個貨幣對被選中，\n"
-                f"超過限制 {TradingConfig.MAX_BACKFILL_SYMBOLS} 個！\n\n"
+                f"超過限制 {self.max_selection} 個！\n\n"
                 f"請先清除一些選擇後再反選。"
             )
             return
@@ -361,11 +368,11 @@ class SymbolSelectorDialog:
             messagebox.showwarning("未選擇", "請至少選擇一個貨幣對！")
             return
         
-        if len(selected) > TradingConfig.MAX_BACKFILL_SYMBOLS:
+        if len(selected) > self.max_selection:
             messagebox.showerror(
                 "選擇超限",
                 f"選擇了 {len(selected)} 個貨幣對，\n"
-                f"超過限制 {TradingConfig.MAX_BACKFILL_SYMBOLS} 個！"
+                f"超過限制 {self.max_selection} 個！"
             )
             return
         
@@ -393,7 +400,7 @@ class SymbolSelectorDialog:
         return self.result
 
 
-def select_symbols_for_backfill(parent, category="crypto", current_selection=None):
+def select_symbols_for_backfill(parent, category="crypto", current_selection=None, custom_available_symbols=None, max_selection=None):
     """
     打開貨幣對選擇器並返回用戶選擇
     
@@ -401,9 +408,11 @@ def select_symbols_for_backfill(parent, category="crypto", current_selection=Non
         parent: 父窗口
         category: 資產分類 ('crypto' 或 'stock')
         current_selection: 當前已選擇的貨幣對列表
+        custom_available_symbols: 自訂可選貨幣對列表（選填）
+        max_selection: 最大選擇數量（選填）
     
     Returns:
         list: 用戶選擇的貨幣對列表，如果取消則返回 None
     """
-    selector = SymbolSelectorDialog(parent, category, current_selection)
+    selector = SymbolSelectorDialog(parent, category, current_selection, custom_available_symbols, max_selection)
     return selector.get_result()

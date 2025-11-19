@@ -33,7 +33,7 @@ class MultiSymbolMonitor:
     """多貨幣對監控管理器"""
     
     # 最大監控貨幣對數量（避免資源過載）
-    MAX_MONITOR_SYMBOLS = 20
+    MAX_MONITOR_SYMBOLS = TradingConfig.MAX_MONITOR_SYMBOLS
     
     def __init__(self, progress_cb: Optional[Callable] = None):
         self.progress_cb = progress_cb
@@ -50,12 +50,14 @@ class MultiSymbolMonitor:
                 pass
         logger.info(msg)
     
-    def start_all_symbols_1s(self, category: str = "crypto") -> bool:
+    def start_all_symbols_1s(self, category: str = "crypto", max_symbols: Optional[int] = None, specific_symbols: Optional[List[str]] = None) -> bool:
         """
         啟動所有支援貨幣對的一秒監控
         
         Args:
             category: 資產分類（預設 crypto）
+            max_symbols: 最大監控數量（選填，若有指定 specific_symbols 則此參數主要用於檢查上限）
+            specific_symbols: 指定要監控的貨幣對列表（選填，若提供則優先使用，忽略 TradingConfig 預設順序）
             
         Returns:
             bool: 是否成功啟動
@@ -65,20 +67,41 @@ class MultiSymbolMonitor:
                 self._emit("⚠️ 多貨幣對監控已在執行中")
                 return False
             
-            all_symbols = TradingConfig.SUPPORTED_SYMBOLS
-            if not all_symbols:
-                self._emit("❌ 無可用的貨幣對配置")
-                return False
-            
-            # 限制監控數量以避免資源過載
-            if len(all_symbols) > self.MAX_MONITOR_SYMBOLS:
-                self._emit(
-                    f"⚠️ 配置了 {len(all_symbols)} 個貨幣對，"
-                    f"為避免資源過載，僅監控前 {self.MAX_MONITOR_SYMBOLS} 個"
-                )
-                symbols = all_symbols[:self.MAX_MONITOR_SYMBOLS]
+            effective_limit = self.MAX_MONITOR_SYMBOLS
+            if max_symbols is not None:
+                try:
+                    if max_symbols > 0:
+                        if max_symbols < effective_limit:
+                            effective_limit = max_symbols
+                except Exception:
+                    pass
+
+            if specific_symbols:
+                # 如果有指定特定名單，優先使用
+                target_list = specific_symbols
+                if len(target_list) > effective_limit:
+                    self._emit(
+                        f"⚠️ 指定了 {len(target_list)} 個貨幣對，"
+                        f"超過當前上限 {effective_limit}，將截斷列表"
+                    )
+                    symbols = target_list[:effective_limit]
+                else:
+                    symbols = target_list
             else:
-                symbols = all_symbols
+                # 否則使用全域配置的前 N 個
+                all_symbols = TradingConfig.SUPPORTED_SYMBOLS
+                if not all_symbols:
+                    self._emit("❌ 無可用的貨幣對配置")
+                    return False
+
+                if len(all_symbols) > effective_limit:
+                    self._emit(
+                        f"⚠️ 配置了 {len(all_symbols)} 個貨幣對，"
+                        f"為避免資源過載，僅監控前 {effective_limit} 個"
+                    )
+                    symbols = all_symbols[:effective_limit]
+                else:
+                    symbols = all_symbols
             
             self._emit(f"🚀 啟動多貨幣對一秒監控：{len(symbols)} 個貨幣對")
             

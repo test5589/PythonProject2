@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/monitor", tags=["monitor"])
 
 class MonitorStartRequest(BaseModel):
     category: str = "crypto"
+    symbols: List[str] | None = None
 
 
 class MonitorControlResponse(BaseModel):
@@ -44,8 +45,23 @@ class FetchLatestMinuteResponse(BaseModel):
 async def start_monitoring(request: MonitorStartRequest) -> MonitorControlResponse:
     """啟動多貨幣對 1秒監控"""
     try:
-        ok = start_all_symbols_monitoring(category=request.category)
         monitor = get_multi_symbol_monitor()
+
+        # 若有指定 symbols，僅啟動這些貨幣對的 1 秒監控
+        # [DESIGN NOTE] 目前 Web 前端只會傳入單一 symbol（當前頁面），
+        # 但這裡仍允許多檔清單，未來若調整 MultiSymbolMonitor 或 GUI 互動方式，需一併考慮此行為。
+        if request.symbols:
+            symbols = [s.replace("/", "").upper() for s in request.symbols]
+            max_symbols = len(symbols)
+            ok = monitor.start_all_symbols_1s(
+                category=request.category,
+                max_symbols=max_symbols,
+                specific_symbols=symbols,
+            )
+        else:
+            # 維持原有行為：啟動預設多貨幣對監控
+            ok = start_all_symbols_monitoring(category=request.category)
+
         if not ok:
             raise HTTPException(status_code=400, detail="啟動多貨幣對監控失敗或已在執行中")
         symbols = monitor.get_monitoring_symbols()

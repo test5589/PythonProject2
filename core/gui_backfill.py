@@ -20,6 +20,12 @@ class GUIBackfill:
     def backfill_data(self):
         gui = self.gui
         
+        # 0. 強制切換到模板 C（回補摘要模板）
+        if getattr(gui, "current_template", None) != "C":
+            if hasattr(gui, "set_monitor_template"):
+                gui.set_monitor_template("C")
+                gui.log("💡 已自動切換至【模板 C】顯示回補任務摘要")
+
         # 檢查是否有暫停中的回補任務
         state = backfill_state_manager.get_state()
         if state.is_running and state.is_paused:
@@ -385,6 +391,13 @@ class GUIBackfill:
     # ======== 抓取最新 1 分鐘資料（多貨幣對） ========
     def fetch_latest(self):
         gui = self.gui
+        
+        # 0. 強制切換到模板 B（狀態模板）
+        if getattr(gui, "current_template", None) != "B":
+            if hasattr(gui, "set_monitor_template"):
+                gui.set_monitor_template("B")
+                gui.log("💡 已自動切換至【模板 B】顯示批量抓取狀態")
+                
         cat = gui.controls.category_entry.get()
 
         if not cat:

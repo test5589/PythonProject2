@@ -74,7 +74,9 @@ function App() {
   const startMonitoring = async () => {
     // 啟動監控時，強制切到 1 秒 timeframe
     setInterval(1)
-    await startMonitoringCore()
+    // [DESIGN NOTE] 這裡使用當前頁面的 symbol 來啟動 /api/monitor/start，
+    // 使 Web 端 1 秒監控只關注單一交易對；若未來支援多 symbol 或不同 timeframe，需要一起調整 useMonitoring 與 backend。 
+    await startMonitoringCore(symbol)
   }
 
   const stopMonitoring = async () => {

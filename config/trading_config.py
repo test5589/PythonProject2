@@ -75,6 +75,7 @@ class TradingConfig:
     
     # 每次回補最多選擇數量
     MAX_BACKFILL_SYMBOLS = 15
+    MAX_MONITOR_SYMBOLS = 20
     
     # ========== 支援的間隔 ==========
     # 格式：顯示名稱 -> API 格式

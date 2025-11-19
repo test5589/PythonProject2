@@ -423,41 +423,48 @@ class DataManager:
                     new_priority = self.priority_map.get(data_source, 999)
                     if new_priority >= existing_priority:
                         return False
-            
-            # 準備插入數據（不再寫入 readable_time 欄位）
-            cursor.execute("""
-                INSERT OR REPLACE INTO historical_data 
-                (timestamp, category, symbol, interval, 
-                 open, high, low, close, volume,
-                 open_time, close_time, quote_asset_volume, num_trades, 
-                 taker_base_vol, taker_quote_vol,
-                 data_source, interp_note, api)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                timestamp, category, symbol, interval,
-                float(kline.get('open', 0)), float(kline.get('high', 0)), 
-                float(kline.get('low', 0)), float(kline.get('close', 0)), float(kline.get('volume', 0)),
-                kline.get('open_time'), kline.get('close_time'), 
-                kline.get('quote_asset_volume'), kline.get('num_trades'),
-                kline.get('taker_base_vol'), kline.get('taker_quote_vol'),
-                data_source, interp_note, api
-            ))
-            
-            return True
-            
+
+            max_retries = 3
+            # [DESIGN NOTE] SQLite 並行寫入容易出現 "database is locked"，這裡以短暫重試 + 警告日誌處理。
+            # 若未來交易量或資料庫類型有變，更改重試次數與 sleep 時間前請先評估效能與穩定性。
+            for attempt in range(1, max_retries + 1):
+                try:
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO historical_data 
+                        (timestamp, category, symbol, interval, 
+                         open, high, low, close, volume,
+                         open_time, close_time, quote_asset_volume, num_trades, 
+                         taker_base_vol, taker_quote_vol,
+                         data_source, interp_note, api)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        timestamp, category, symbol, interval,
+                        float(kline.get('open', 0)), float(kline.get('high', 0)), 
+                        float(kline.get('low', 0)), float(kline.get('close', 0)), float(kline.get('volume', 0)),
+                        kline.get('open_time'), kline.get('close_time'), 
+                        kline.get('quote_asset_volume'), kline.get('num_trades'),
+                        kline.get('taker_base_vol'), kline.get('taker_quote_vol'),
+                        data_source, interp_note, api
+                    ))
+                    return True
+                except Exception as e:
+                    error_type = type(e).__name__
+                    error_msg = str(e)
+                    if "database is locked" in error_msg.lower() and attempt < max_retries:
+                        logger.warning(f"資料庫鎖定，準備重試 ({attempt}/{max_retries}): 貨幣對={symbol}, 間隔={interval}秒, 時間戳={timestamp}, 資料來源={data_source}")
+                        time.sleep(0.2)
+                        continue
+                    if "database is locked" in error_msg.lower():
+                        logger.error(f"資料庫鎖定錯誤: 貨幣對={symbol}, 間隔={interval}秒, 時間戳={timestamp}, 資料來源={data_source}")
+                        logger.error(f"建議解決方案: 1.減少並行寫入操作 2.增加交易超時時間 3.可能需要重啟程式釋放鎖定")
+                    else:
+                        logger.error(f"事務中插入失敗: 貨幣對={symbol}, 間隔={interval}秒, 錯誤類型={error_type}, 詳細={error_msg}")
+                    return False
+
         except Exception as e:
-            # 顯示更詳細的錯誤資訊，包括貨幣對、間隔和錯誤類型
             error_type = type(e).__name__
             error_msg = str(e)
-            
-            # 檢查是否為資料庫鎖定錯誤
-            if "database is locked" in error_msg.lower():
-                logger.error(f"資料庫鎖定錯誤: 貨幣對={symbol}, 間隔={interval}秒, 時間戳={timestamp}, 資料來源={data_source}")
-                logger.error(f"建議解決方案: 1.減少並行寫入操作 2.增加交易超時時間 3.可能需要重啟程式釋放鎖定")
-            else:
-                # 其他類型錯誤
-                logger.error(f"事務中插入失敗: 貨幣對={symbol}, 間隔={interval}秒, 錯誤類型={error_type}, 詳細={error_msg}")
-            
+            logger.error(f"事務中插入失敗: 貨幣對={symbol}, 間隔={interval}秒, 錯誤類型={error_type}, 詳細={error_msg}")
             return False
     
     def _record_duplicate_skip(self, category: str, symbol: str, interval: int, timestamp: float, new_source: str, existing_source: Optional[str]) -> None:

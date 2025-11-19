@@ -31,6 +31,10 @@ from core.gui.monitor_board_template import (
     DYNAMIC_FIELD_SLOTS,
     AVAILABLE_TEMPLATES,
 )
+from core.gui.monitor_message_handler import MonitorMessageHandler
+from core.gui.grid_renderer import GridRenderer
+from core.gui.template_b_view import TemplateBView
+from core.gui.template_c_view import TemplateCView
 
 # 子模組
 from core.gui_controls import GUIControls
@@ -80,9 +84,11 @@ class MainGUI:
         self.max_extra_rows = 175  # 200 - 25
         self.grid_rows = self.visible_rows + self.max_extra_rows  # 200 行
         self.grid_cols = LOG_TEXT_WIDTH
-        self._init_grid()
         self._render_interval_ms = 100
         self._render_pending = False
+        # Grid 渲染器
+        self.grid_renderer = GridRenderer(self)
+        self._init_grid()
         
         # ---- GUI日誌管理配置 ----
         self.max_log_lines = 2000  # GUI最多顯示2000行
@@ -97,6 +103,13 @@ class MainGUI:
 
         # ---- GUI LOG 管理器 ----
         self.gui_log_manager = GuiLogManager(self.log)
+
+        # ---- 1 秒監控訊息處理器 ----
+        self.monitor_message_handler = MonitorMessageHandler(self)
+
+        # ---- 模板 B / C 渲染器 ----
+        self.template_b_view = TemplateBView(self)
+        self.template_c_view = TemplateCView(self)
 
         # ---- 註冊 stats_collector duplicate skip hook（目前只用於 BTCUSDT 區塊）----
         try:
@@ -160,24 +173,17 @@ class MainGUI:
 
     # ======= GUI日誌管理 =======
     def _setup_temp_log(self):
-        """初始化臨時日誌文件，重啟時清空"""
+        """初始化臨時日誌文件目錄（不再自動清空舊檔）。"""
         import os
         os.makedirs("data/temp", exist_ok=True)
         os.makedirs("data", exist_ok=True)
-        # 重啟時清空舊的暫存日誌，但保留 monitor_summary_file
-        if os.path.exists(self.temp_log_file):
-            os.remove(self.temp_log_file)
     
     def _on_closing(self):
         """程序關閉時的清理工作"""
-        import os
         try:
             self._save_current_template()
         except Exception:
             pass
-        # 清空本次 GUI session 的暫存日誌（保留長期統計檔 monitor_summary_file）
-        if os.path.exists(self.temp_log_file):
-            os.remove(self.temp_log_file)
         self.root.destroy()
     
     # ======= 通用輸出 =======
@@ -238,6 +244,12 @@ class MainGUI:
         self.current_template = template_name
         try:
             self._save_current_template()
+            # 同步更新下拉選單顯示
+            if hasattr(self, "controls") and hasattr(self.controls, "template_var"):
+                try:
+                    self.controls.template_var.set(template_name)
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -248,6 +260,8 @@ class MainGUI:
         except Exception:
             return
 
+        # [DESIGN NOTE] 模板 B/C 的內容是從快取資料填入動態欄位，實作分別在 TemplateBView/TemplateCView 中。
+        # 若調整模板版面或快取結構，需同時更新這兩個 view 類別與此處的套用流程。
         # 切到 B：若已有 1 分鐘批量摘要快取，套用到畫面
         if template_name == "B":
             try:
@@ -322,138 +336,7 @@ class MainGUI:
 
     def _render_template_b_from_cache(self) -> None:
         """根據快取的最新 1 分鐘摘要資料，將內容填入模板 B 的動態欄位。"""
-
-        summary = getattr(self, "latest_1m_summary", None)
-        if not summary:
-            return
-
-        from datetime import datetime as _dt
-        from config.trading_config import TradingConfig
-
-        results = summary.get("results") or {}
-        real_alerts = summary.get("real_alerts") or {}
-        pseudo_alerts = summary.get("pseudo_alerts") or {}
-        fully_ok = summary.get("fully_ok") or []
-        start_time = summary.get("start_time")
-        end_time = summary.get("end_time")
-
-        fetch_stats = getattr(self, "latest_1m_fetch_stats", None) or {}
-        retry_stats = getattr(self, "latest_1m_retry_stats", None) or {}
-        log_rot = getattr(self, "latest_1m_log_rotation", None) or {}
-
-        # ---- GLOBAL_B 數字 ----
-        try:
-            self._update_dynamic_field("B_GLOBAL", "real_alert_count", str(len(real_alerts)))
-            self._update_dynamic_field("B_GLOBAL", "pseudo_alert_count", str(len(pseudo_alerts)))
-            self._update_dynamic_field("B_GLOBAL", "ok_count", str(len(fully_ok)))
-        except Exception:
-            pass
-
-        try:
-            total_symbols = len(results)
-            success_symbols = sum(1 for info in results.values() if (info or {}).get("api_fetched", 0) > 0)
-            total_inserted = fetch_stats.get("total_rows")
-            if total_inserted is None:
-                total_inserted = ""
-            self._update_dynamic_field("B_GLOBAL", "total_symbols", str(total_symbols))
-            self._update_dynamic_field("B_GLOBAL", "success_symbols", str(success_symbols))
-            self._update_dynamic_field("B_GLOBAL", "total_inserted", str(total_inserted))
-        except Exception:
-            pass
-
-        # 批次時間範圍（轉為台北時間顯示）
-        try:
-            tw_tz = timezone(timedelta(hours=8))
-            if isinstance(start_time, _dt):
-                start_tw = start_time.astimezone(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                start_tw = ""
-            if isinstance(end_time, _dt):
-                end_tw = end_time.astimezone(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                end_tw = ""
-            self._update_dynamic_field("B_GLOBAL", "range_start", start_tw)
-            self._update_dynamic_field("B_GLOBAL", "range_end", end_tw)
-        except Exception:
-            pass
-
-        # API 重試與 LOG 輪替
-        try:
-            conn = retry_stats.get("conn", "")
-            timeout = retry_stats.get("timeout", "")
-            rotation_count = log_rot.get("rotation_count", "")
-            self._update_dynamic_field("B_GLOBAL", "api_conn_retries", str(conn))
-            self._update_dynamic_field("B_GLOBAL", "api_timeout_retries", str(timeout))
-            self._update_dynamic_field("B_GLOBAL", "log_rotation_count", str(rotation_count))
-        except Exception:
-            pass
-
-        # ---- 每個貨幣對三行狀態 ----
-        try:
-            symbols = TradingConfig.SUPPORTED_SYMBOLS[:MAX_SYMBOLS]
-        except Exception:
-            symbols = []
-
-        for sym in symbols:
-            info = results.get(sym)
-            if not info:
-                continue
-
-            api_ok = bool(info.get("api_ok"))
-            db_ok = bool(info.get("db_ok"))
-            api_fetched = info.get("api_fetched", 0)
-            db_count = info.get("db_count", 0)
-            min_acc = info.get("min_acceptable", 0)
-            max_acc = info.get("max_acceptable", 0)
-
-            # 整體狀態
-            if not db_ok:
-                state = "ALERT"
-            elif db_ok and not api_ok:
-                state = "FEW"
-            else:
-                state = "OK"
-
-            # API / DB 狀態
-            if api_fetched < min_acc:
-                api_status = "少"
-            elif api_fetched > max_acc:
-                api_status = "多"
-            else:
-                api_status = "OK"
-
-            if db_count < min_acc:
-                db_status = "少"
-            elif db_count > max_acc:
-                db_status = "多"
-            else:
-                db_status = "OK"
-
-            validation_status = "PASS" if api_ok and db_ok else "WARN"
-
-            # 簡短警示文字
-            if not db_ok:
-                warning = "ALERT: DB 1m 筆數不足，今日 1m 可能缺 K 棒"
-            elif db_ok and not api_ok:
-                warning = "FAKE: DB 已齊，本次 API 新增偏少（複檢提醒）"
-            else:
-                warning = "OK: API & DB 均在合理範圍內"
-
-            try:
-                self._update_dynamic_field(sym, "b_state", state)
-                self._update_dynamic_field(sym, "b_inserted", str(api_fetched))
-                self._update_dynamic_field(sym, "b_db_count", str(db_count))
-                self._update_dynamic_field(sym, "b_api_status", api_status)
-                self._update_dynamic_field(sym, "b_db_status", db_status)
-                self._update_dynamic_field(sym, "b_validation_status", validation_status)
-                self._update_dynamic_field(sym, "b_warning", warning)
-            except Exception:
-                continue
-
-        try:
-            self._schedule_render()
-        except Exception:
-            pass
+        self.template_b_view.render_from_cache()
 
     def update_backfill_template(self, summary: dict) -> None:
         """更新模板 C 用的回補任務摘要快取，必要時重繪畫面。"""
@@ -470,181 +353,26 @@ class MainGUI:
 
     def _render_template_c_from_cache(self) -> None:
         """根據快取的回補摘要資料，將內容填入模板 C 的動態欄位。"""
-
-        summary = getattr(self, "backfill_summary_cache", None) or {}
-        if not summary:
-            return
-
-        total = summary.get("total", 0)
-        success = summary.get("success", 0)
-        failed = summary.get("failed", 0)
-        skipped = summary.get("skipped", 0)
-        val_err = summary.get("validation_errors", 0)
-        ins_err = summary.get("insert_errors", 0)
-        other_err = summary.get("other_errors", 0)
-        finished_at = summary.get("finished_at")
-        symbols_info = summary.get("symbols") or {}
-
-        # 全域統計欄位
-        try:
-            self._update_dynamic_field("C_GLOBAL", "total_symbols", str(total))
-            self._update_dynamic_field("C_GLOBAL", "success_count", str(success))
-            self._update_dynamic_field("C_GLOBAL", "failed_count", str(failed))
-            self._update_dynamic_field("C_GLOBAL", "skipped_count", str(skipped))
-        except Exception:
-            pass
-
-        try:
-            self._update_dynamic_field("C_GLOBAL", "validation_errors", str(val_err))
-            self._update_dynamic_field("C_GLOBAL", "insert_errors", str(ins_err))
-            self._update_dynamic_field("C_GLOBAL", "other_errors", str(other_err))
-        except Exception:
-            pass
-
-        # 回補完成時間（台北時間）
-        try:
-            from datetime import datetime as _dt
-
-            if isinstance(finished_at, _dt):
-                tw_tz = timezone(timedelta(hours=8))
-                finished_str = finished_at.astimezone(tw_tz).strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                finished_str = str(finished_at) if finished_at else ""
-            self._update_dynamic_field("C_GLOBAL", "finished_at", finished_str)
-        except Exception:
-            pass
-
-        # 各貨幣對回補結果
-        try:
-            from config.trading_config import TradingConfig
-            symbols = TradingConfig.SUPPORTED_SYMBOLS
-        except Exception:
-            symbols = []
-
-        for sym in symbols:
-            info = symbols_info.get(sym)
-            if not info:
-                continue
-
-            status = str(info.get("status", ""))
-            validation = str(info.get("validation", ""))
-            risk = str(info.get("risk", ""))
-            note = str(info.get("note", ""))
-
-            try:
-                self._update_dynamic_field(sym, "c_status", status)
-                self._update_dynamic_field(sym, "c_validation", validation)
-                self._update_dynamic_field(sym, "c_risk", risk)
-                self._update_dynamic_field(sym, "c_note", note)
-            except Exception:
-                continue
-
-        try:
-            self._schedule_render()
-        except Exception:
-            pass
+        self.template_c_view.render_from_cache()
 
     # ======= Grid 模板管理 (50x50) =======
     def _init_grid(self):
-        self.grid_lines = [" " * self.grid_cols for _ in range(self.grid_rows)]
-        self._dirty_rows = set(range(self.grid_rows))
+        self.grid_renderer.init_grid()
 
     def _set_grid_row(self, row_index, text):
-        if not (0 <= row_index < self.grid_rows):
-            return
-        if text is None:
-            text = ""
-        if len(text) > self.grid_cols:
-            line = text[: self.grid_cols]
-        else:
-            line = text.ljust(self.grid_cols)
-        self.grid_lines[row_index] = line
-        if hasattr(self, "_dirty_rows"):
-            self._dirty_rows.add(row_index)
+        self.grid_renderer.set_row(row_index, text)
 
     def _set_grid_segment(self, row_index, col_start, text):
-        if not (0 <= row_index < self.grid_rows):
-            return
-        if text is None:
-            return
-        if col_start < 0 or col_start >= self.grid_cols:
-            return
-        row = self.grid_lines[row_index]
-        if len(row) < self.grid_cols:
-            row = row.ljust(self.grid_cols)
-        chars = list(row)
-        for i, ch in enumerate(text):
-            cidx = col_start + i
-            if cidx >= self.grid_cols:
-                break
-            chars[cidx] = ch
-        self.grid_lines[row_index] = "".join(chars)
-        if hasattr(self, "_dirty_rows"):
-            self._dirty_rows.add(row_index)
+        self.grid_renderer.set_segment(row_index, col_start, text)
 
     def _render_grid(self):
-        if not hasattr(self, "log_text"):
-            return
-
-        # 記住目前的捲動位置，避免每次重繪時滑軌跳動
-        try:
-            y_start, _ = self.log_text.yview()
-        except Exception:
-            y_start = None
-
-        dirty_rows = getattr(self, "_dirty_rows", None)
-        if not dirty_rows:
-            return
-
-        # 暫時開啟編輯權限供程式寫入
-        self.log_text.configure(state="normal")
-
-        # 確保 Text 內至少有 grid_rows 行，避免在重繪時變動行數
-        try:
-            total_lines = int(self.log_text.index("end-1c").split(".")[0])
-        except Exception:
-            total_lines = 0
-
-        if total_lines < self.grid_rows:
-            # 不足的行數補空行，之後只會在原位置覆寫，不再增刪行
-            for _ in range(self.grid_rows - total_lines):
-                self.log_text.insert(tk.END, "\n")
-
-        # 只更新有變動的行，避免整個畫面重繪
-        for idx in sorted(dirty_rows):
-            if not (0 <= idx < self.grid_rows):
-                continue
-            row = idx + 1  # Text 的行號從 1 開始
-            start_index = f"{row}.0"
-            end_index = f"{row}.end"
-            line = self.grid_lines[idx]
-            self.log_text.delete(start_index, end_index)
-            self.log_text.insert(start_index, line)
-
-        self._dirty_rows.clear()
-
-        # 恢復原本的捲動位置
-        if y_start is not None:
-            try:
-                self.log_text.yview_moveto(y_start)
-            except Exception:
-                pass
-
-        # 重繪完成後再次鎖定，避免使用者手動刪改內容
-        self.log_text.configure(state="disabled")
+        self.grid_renderer.render_grid()
 
     def _schedule_render(self):
-        if getattr(self, "_render_pending", False):
-            return
-        self._render_pending = True
-        try:
-            self.root.after(self._render_interval_ms, self._flush_render)
-        except Exception:
-            self._render_pending = False
+        self.grid_renderer.schedule_render()
 
     def _flush_render(self):
-        self._render_pending = False
-        self._render_grid()
+        self.grid_renderer.flush_render()
 
     def emit(self, msg: str):
         """統一日誌輸出介面：處理 1 秒監控與相關提示訊息。
@@ -654,123 +382,9 @@ class MainGUI:
 
         # 將訊息丟回 Tk 主執行緒處理，避免跨執行緒操作 Text 導致底層記憶體錯誤
         try:
-            self.root.after(0, lambda m=msg: self._handle_monitor_message(m))
+            self.root.after(0, lambda m=msg: self.monitor_message_handler.handle_message(m))
         except Exception:
             pass
-
-    def _handle_monitor_message(self, msg: str):
-        """在 Tk 主執行緒中處理所有 1 秒監控相關訊息：
-
-        1) 先分類並更新模板A的四個總覽計數。
-        2) 若為 🟢 1s 寫入 訊息，再更新對應貨幣對區塊。
-        3) 統一排程一次重繪（帶有更新節流機制）。
-        """
-
-        try:
-            kind = self._classify_monitor_msg(msg)
-            if kind is not None:
-                self._increment_summary(kind)
-
-            if "🟢 1s 寫入" in msg:
-                self._handle_1s_message(msg)
-
-            self._schedule_render()
-        except Exception:
-            # 出錯時忽略，不影響其他功能
-            pass
-
-    def _handle_1s_message(self, msg: str):
-        """在 Tk 主執行緒中處理 1 秒監控訊息，更新對應貨幣對區塊。"""
-
-        try:
-            # 解析開頭的 [SYMBOL]
-            symbol = None
-            if msg.startswith("[") and "]" in msg:
-                end = msg.find("]")
-                if end > 1:
-                    symbol = msg[1:end]
-            if not symbol:
-                return
-
-            self._update_symbol_1s_block(symbol, msg)
-        except Exception:
-            # 出錯時忽略，不影響其他功能
-            pass
-
-    # ======= 通用：單一貨幣對 1 秒監控區塊更新 =======
-    def _update_symbol_1s_block(self, symbol: str, raw_msg: str):
-        """解析指定 SYMBOL 的 1 秒監控訊息，更新該貨幣對區塊中的 1 秒寫入與 NOW 行。"""
-
-        if (symbol, "now_time") not in DYNAMIC_FIELD_SLOTS:
-            return
-
-        # NOW 行（UTC+8 現在時間）
-        try:
-            now_local = datetime.now(tz=timezone(timedelta(hours=8)))
-            now_str = now_local.strftime("%y/%m/%d %H:%M:%S")
-        except Exception:
-            now_str = ""
-        self._update_dynamic_field(symbol, "now_time", now_str)
-
-        local_ts_str = ""
-        data_source = ""
-        total_str = ""
-
-        try:
-            # 移除前綴 [SYMBOL]
-            core = raw_msg
-            if raw_msg.startswith("[") and "]" in raw_msg:
-                end = raw_msg.find("]")
-                if end > 1:
-                    core = raw_msg[end + 1 :].strip()
-
-            # 嘗試解析完整時間戳（例如 '2025-11-18 18:58:01+00:00'）
-            m = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\+\d{2}:\d{2}", core)
-            if m is not None:
-                ts_token = m.group(0)
-                dt_utc = datetime.fromisoformat(ts_token)
-                dt_local = dt_utc.astimezone(timezone(timedelta(hours=8)))
-                local_ts_str = dt_local.strftime("%y/%m/%d %H:%M:%S")
-
-            # 解析 data_source 與 總共 N
-            if "data_source=" in core:
-                _, tail = core.split("data_source=", 1)
-                if "(總共" in tail:
-                    src_part, count_part = tail.split("(總共", 1)
-                    data_source = src_part.strip()
-                    digits = "".join(ch for ch in count_part if ch.isdigit())
-                    total_str = digits
-        except Exception:
-            pass
-
-        if not data_source:
-            data_source = "real"
-        if not total_str:
-            total_str = "?"
-        stats = getattr(self, "session_symbol_stats", None)
-        if stats is None:
-            stats = {}
-            self.session_symbol_stats = stats
-        sym_stats = stats.setdefault(symbol, {"real": 0, "fill": 0, "other": 0})
-        if data_source == "real":
-            sym_stats["real"] += 1
-        elif data_source == "real_no-trade-fill":
-            sym_stats["fill"] += 1
-        else:
-            sym_stats["other"] += 1
-
-        if data_source == "real_no-trade-fill":
-            ts_field = "fill_ts"
-            ds_field = "fill_data_source"
-            total_field = "fill_total"
-        else:
-            ts_field = "real_ts"
-            ds_field = "real_data_source"
-            total_field = "real_total"
-
-        self._update_dynamic_field(symbol, ts_field, local_ts_str)
-        self._update_dynamic_field(symbol, ds_field, data_source)
-        self._update_dynamic_field(symbol, total_field, total_str)
 
     def _update_dynamic_field(self, symbol: str, field_name: str, value: str):
         key = (symbol, field_name)
@@ -785,79 +399,6 @@ class MainGUI:
         col_start = col - 1
         self._set_grid_segment(row_index, col_start, text)
 
-    def _classify_monitor_msg(self, msg: str):
-        """將 1 秒監控相關訊息分類為 警報 / 假警報 / 系統提示 / 一般 LOG。"""
-
-        if not msg:
-            return None
-
-        # 真正錯誤：含有 ❌ 或 1s 收集寫入失敗總結
-        if "❌" in msg:
-            return "alert"
-        if "⚠️ 本次 1s 收集共有" in msg and "寫入失敗" in msg:
-            return "alert"
-
-        # 假警報 / 低優先異常：一般⚠️與假假警報
-        if "⚪ [假假警報]" in msg:
-            return "false_alert"
-        if "⚠️" in msg:
-            return "false_alert"
-
-        # 系統提示：啟停、彙總、WS 狀態等
-        system_tags = (
-            "🚀",
-            "🎉",
-            "🛑",
-            "⛔",
-            "ℹ️ 1s 收集結束",
-            "✅ 1s 收集結束",
-            "🟢 多貨幣對一秒監控已啟動",
-            "⏹️ 無監控執行中",
-            "🟢 WS 已連線",
-            "🔌 WS 已關閉",
-        )
-        if any(tag in msg for tag in system_tags):
-            return "system"
-
-        # 正常 1s 寫入
-        if "🟢 1s 寫入" in msg:
-            return "log"
-
-        # 其他仍視為一般 LOG
-        return "log"
-
-    def _increment_summary(self, kind: str, delta: int = 1):
-        """根據分類更新模板A第 1 行的四個計數欄位。"""
-
-        if not kind:
-            return
-
-        try:
-            summary = getattr(self, "monitor_summary", None)
-            if summary is None:
-                summary = {"alert": 0, "false_alert": 0, "system": 0, "log": 0}
-                self.monitor_summary = summary
-            if kind not in summary:
-                return
-            summary[kind] += delta
-        except Exception:
-            return
-
-        field_map = {
-            "alert": "alert_count",
-            "false_alert": "false_alert_count",
-            "system": "system_hint_count",
-            "log": "log_count",
-        }
-        field = field_map.get(kind)
-        if not field:
-            return
-
-        try:
-            value = str(self.monitor_summary.get(kind, 0))
-            self._update_dynamic_field("GLOBAL", field, value)
-        except Exception:
-            pass
 
     def on_monitor_started(self):
         """由 GUIMonitoring 在啟動多貨幣對 1 秒監控成功時呼叫：更新開始時間欄位。"""
@@ -912,6 +453,8 @@ class MainGUI:
             pass
 
     def _log_monitor_summary(self):
+        # [DESIGN NOTE] 依賴 MonitorMessageHandler 累計的 monitor_summary 與 session_symbol_stats 結果。
+        # 若未來調整 1 秒訊息分類或統計邏輯，請確認此摘要輸出仍然正確。
         try:
             start_dt = getattr(self, "monitor_start_dt", None)
             end_dt = getattr(self, "monitor_end_dt", None)
@@ -980,6 +523,8 @@ class MainGUI:
         """由 stats_collector 呼叫的 hook：只處理 BTCUSDT 的重複跳過資訊。"""
         try:
             # 從資料庫線程切回 GUI 主線程（Tk 只能在主執行緒操作）
+            # [DESIGN NOTE] 這個 hook 會在資料庫背景執行緒被呼叫，
+            # 一定要透過 root.after 切回主執行緒後再更新 GUI 狀態，避免 Tk thread-safety 問題。
             self.root.after(0, lambda i=info: self._handle_duplicate_skip(i))
         except Exception:
             pass
@@ -994,7 +539,11 @@ class MainGUI:
 
             self._update_symbol_duplicate_block(info)
             # 重複跳過視為低優先級假警報
-            self._increment_summary("false_alert")
+            if hasattr(self, "monitor_message_handler"):
+                try:
+                    self.monitor_message_handler.increment_summary("false_alert")
+                except Exception:
+                    pass
             self._schedule_render()
         except Exception:
             pass
@@ -1041,6 +590,10 @@ class MainGUI:
         目標顯示格式（GUI）：
         現在時間 | multi_monitor | INFO | [SYMBOL] 🟢 1s 寫入 SYMBOL 寫入時間 data_source=XXX(總共NN)
         """
+
+        # [DESIGN NOTE] 這個固定面板使用獨立的 monitor_panel_state + GridRenderer，
+        # 與模板 A 上顯示的 1 秒欄位屬於兩套視覺呈現邏輯；若未來統一版面或改成其他呈現方式，
+        # 修改前建議先梳理兩者的關係，避免互相覆蓋畫面。
 
         # 解析 symbol：訊息開頭的 [SYMBOL]
         symbol = None

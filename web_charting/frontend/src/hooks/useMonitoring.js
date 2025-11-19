@@ -26,7 +26,7 @@ export function useMonitoring() {
   }, [])
 
   // 啟動 1 秒監控（僅處理監控本身，不處理 timeframe 切換）
-  const startMonitoring = useCallback(async () => {
+  const startMonitoring = useCallback(async (symbol) => {
     setMonitorLoading(true)
     try {
       const response = await fetch('/api/monitor/start', {
@@ -34,8 +34,11 @@ export function useMonitoring() {
         headers: {
           'Content-Type': 'application/json',
         },
+        // [DESIGN NOTE] Web 端目前以「當前頁面的 symbol」作為唯一 1 秒監控對象，
+        // 因此這裡只傳一個 symbol；若未來要同時監多檔或改變類別，需同步調整 backend / GUI 的設計。
         body: JSON.stringify({
           category: 'crypto',
+          symbols: symbol ? [symbol] : undefined,
         }),
       })
 

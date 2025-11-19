@@ -73,6 +73,22 @@ class ControlsBase:
         )
         self.template_combo.pack(side=tk.LEFT, padx=(0, 10))
 
+        ttk.Label(control_options_frame, text="1秒監控貨幣對數:").pack(side=tk.LEFT, padx=(0, 5))
+        # 預設為 5，最大值 10
+        default_monitor_limit = 5
+        self.monitor_symbol_limit_var = tk.StringVar(value="(待選)")
+        # 選項為固定顯示目前上限值
+        limit_values = ["(待選)"] + [str(i) for i in range(1, default_monitor_limit + 1)]
+
+        self.monitor_symbol_limit_combo = ttk.Combobox(
+            control_options_frame,
+            values=limit_values,
+            width=5,
+            state="disabled",
+            textvariable=self.monitor_symbol_limit_var,
+        )
+        self.monitor_symbol_limit_combo.pack(side=tk.LEFT, padx=(0, 10))
+
         def _on_template_changed(event=None):
             tpl = self.template_var.get()
             gui = self.gui

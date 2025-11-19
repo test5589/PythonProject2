@@ -61,7 +61,7 @@ class GUIControls:
             if hasattr(self.quick_controls, attr):
                 setattr(self, attr, getattr(self.quick_controls, attr))
         # 基礎控制項
-        for attr in ['backfill_interval_combo', 'backfill_control_frame', 'backfill_btn', 'pause_resume_btn', 'stop_backfill_btn', 'weight_control_frame', 'weight_status_btn', 'reset_weight_btn', 'test_weight_btn', 'stop_weight_test_btn']:
+        for attr in ['backfill_interval_combo', 'backfill_control_frame', 'backfill_btn', 'pause_resume_btn', 'stop_backfill_btn', 'weight_control_frame', 'weight_status_btn', 'reset_weight_btn', 'test_weight_btn', 'stop_weight_test_btn', 'monitor_symbol_limit_combo', 'monitor_symbol_limit_var', 'template_combo', 'template_var']:
             if hasattr(self.controls_base, attr):
                 setattr(self, attr, getattr(self.controls_base, attr))
         self._layout_file = self.controls_base._layout_file
