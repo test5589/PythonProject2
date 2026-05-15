@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Layout, message } from 'antd'
+import { Layout, message, Button } from 'antd'
 import Header from './components/Header'
 import TimeframeSelector from './components/TimeframeSelector'
 import CandlestickChart from './components/CandlestickChart'
@@ -7,15 +7,34 @@ import ControlPanel from './components/ControlPanel'
 import './App.css'
 import { useCandles } from './hooks/useCandles'
 import { useMonitoring } from './hooks/useMonitoring'
+import ProfessionalLayout from './ProUIPreview' // 匯入專業佈局組件
 
 const { Header: AntHeader, Content } = Layout
 
 function App() {
+  const [showProPreview, setShowProPreview] = useState(true) // 預設使用專業版
   const [symbol, setSymbol] = useState('BTCUSDT')
   const [interval, setInterval] = useState(60) // 1分鐘
   const [dataSource, setDataSource] = useState('all') // 'all', 'real', 'Aggregation'
   const [lastSyncTime, setLastSyncTime] = useState(null)
   const [syncLoading, setSyncLoading] = useState(false)
+  const [symbols, setSymbols] = useState([]) // 交易對列表
+
+  // 獲取可用的交易對列表
+  useEffect(() => {
+    const fetchSymbols = async () => {
+      try {
+        const response = await fetch('/api/charts/symbols')
+        const data = await response.json()
+        if (data.symbols) {
+          setSymbols(data.symbols)
+        }
+      } catch (error) {
+        console.error('獲取交易對失敗:', error)
+      }
+    }
+    fetchSymbols()
+  }, [])
 
   // 使用共用 hook 管理監控狀態與 /api/monitor/* 呼叫
   const {
@@ -74,8 +93,6 @@ function App() {
   const startMonitoring = async () => {
     // 啟動監控時，強制切到 1 秒 timeframe
     setInterval(1)
-    // [DESIGN NOTE] 這裡使用當前頁面的 symbol 來啟動 /api/monitor/start，
-    // 使 Web 端 1 秒監控只關注單一交易對；若未來支援多 symbol 或不同 timeframe，需要一起調整 useMonitoring 與 backend。 
     await startMonitoringCore(symbol)
   }
 
@@ -161,63 +178,109 @@ function App() {
   }, [monitoring, loadCandles])
 
   return (
-    <Layout style={{ height: '100vh' }}>
-      <AntHeader style={{ 
-        padding: '0 24px', 
-        display: 'flex', 
-        alignItems: 'center',
-        justifyContent: 'space-between'
-      }}>
-        <Header 
-          symbol={symbol}
-          onSymbolChange={setSymbol}
-        />
-      </AntHeader>
-      
-      <Content style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {/* 時間框架選擇器 */}
-        <TimeframeSelector 
-          interval={interval}
-          onIntervalChange={handleIntervalChange}
-        />
-        
-        {/* K線圖 */}
-        <div style={{ 
-          flex: 1, 
-          minHeight: '500px',
-          height: 'calc(100vh - 300px)',
-          display: 'flex'
-        }}>
-          <CandlestickChart 
+    <>
+      {showProPreview ? (
+        <div style={{ position: 'relative' }}>
+          <ProfessionalLayout 
             symbol={symbol}
+            onSymbolChange={setSymbol}
+            symbols={symbols}
             interval={interval}
-            candlesData={candlesData}
-            loading={loading}
+            onIntervalChange={handleIntervalChange}
             monitoring={monitoring}
+            onStartMonitoring={startMonitoring}
+            onStopMonitoring={stopMonitoring}
+            loading={loading}
+            syncLoading={syncLoading}
+            onSync={syncData}
+            onRefresh={loadCandles}
+            candlesData={candlesData}
             currentWindowCount={currentWindowCount}
+            dataSource={dataSource}
+            onDataSourceChange={setDataSource}
+            lastSyncTime={lastSyncTime}
+            onGapFillFrom1m={handleGapFillFrom1m}
+            backfillStatus={backfillStatus}
+            monitorSymbols={monitorSymbols}
           />
+          <Button 
+            type="primary" 
+            danger
+            size="small"
+            style={{ position: 'fixed', bottom: '40px', right: '20px', zIndex: 1000, opacity: 0.5 }}
+            onClick={() => setShowProPreview(false)}
+          >
+            切換回舊版 UI
+          </Button>
         </div>
-        
-        {/* 控制面板 */}
-        <ControlPanel 
-          dataSource={dataSource}
-          onDataSourceChange={setDataSource}
-          onSync={syncData}
-          onRefresh={loadCandles}
-          loading={loading}
-          syncLoading={syncLoading}
-          lastSyncTime={lastSyncTime}
-          monitoring={monitoring}
-          monitorLoading={monitorLoading}
-          monitorSymbols={monitorSymbols}
-          onStartMonitoring={startMonitoring}
-          onStopMonitoring={stopMonitoring}
-          interval={interval}
-          backfillStatus={backfillStatus}
-          onGapFillFrom1m={handleGapFillFrom1m}
-        />
-      </Content>
-    </Layout>
+      ) : (
+        <Layout style={{ height: '100vh' }}>
+          <AntHeader style={{ 
+            padding: '0 24px', 
+            display: 'flex', 
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <Header 
+              symbol={symbol}
+              onSymbolChange={setSymbol}
+            />
+            <Button 
+              type="primary" 
+              ghost 
+              onClick={() => setShowProPreview(true)}
+              style={{ borderColor: '#2962ff', color: '#2962ff' }}
+            >
+              切換專業 UI
+            </Button>
+          </AntHeader>
+          
+          <Content style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {/* 時間框架選擇器 */}
+            <TimeframeSelector 
+              interval={interval}
+              onIntervalChange={handleIntervalChange}
+            />
+            
+            {/* K線圖 */}
+            <div style={{ 
+              flex: 1, 
+              minHeight: '500px',
+              height: 'calc(100vh - 300px)',
+              display: 'flex'
+            }}>
+              <CandlestickChart 
+                symbol={symbol}
+                interval={interval}
+                candlesData={candlesData}
+                loading={loading}
+                monitoring={monitoring}
+                currentWindowCount={currentWindowCount}
+              />
+            </div>
+            
+            {/* 控制面板 */}
+            <ControlPanel 
+              dataSource={dataSource}
+              onDataSourceChange={setDataSource}
+              onSync={syncData}
+              onRefresh={loadCandles}
+              loading={loading}
+              syncLoading={syncLoading}
+              lastSyncTime={lastSyncTime}
+              monitoring={monitoring}
+              monitorLoading={monitorLoading}
+              monitorSymbols={monitorSymbols}
+              onStartMonitoring={startMonitoring}
+              onStopMonitoring={stopMonitoring}
+              interval={interval}
+              backfillStatus={backfillStatus}
+              onGapFillFrom1m={handleGapFillFrom1m}
+            />
+          </Content>
+        </Layout>
+      )}
+    </>
   )
 }
 

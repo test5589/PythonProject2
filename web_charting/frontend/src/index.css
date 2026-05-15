@@ -10,8 +10,8 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #0d1117;
-  color: #c9d1d9;
+  background-color: #ffffff;
+  color: #131722;
 }
 
 code {
@@ -25,23 +25,23 @@ code {
   overflow: hidden;
 }
 
-/* Ant Design dark theme overrides */
+/* Ant Design light theme overrides */
 .ant-layout {
-  background: #0d1117;
+  background: #ffffff;
 }
 
 .ant-layout-header {
-  background: #161b22;
-  border-bottom: 1px solid #30363d;
+  background: #ffffff;
+  border-bottom: 1px solid #f0f3fa;
 }
 
 .ant-layout-content {
-  background: #0d1117;
+  background: #ffffff;
 }
 
 .ant-card {
-  background: #161b22;
-  border-color: #30363d;
+  background: #ffffff;
+  border-color: #f0f3fa;
 }
 
 .ant-btn-primary {
