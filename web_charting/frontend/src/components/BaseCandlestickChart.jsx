@@ -288,6 +288,20 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       lastLogicalIndexRef.current = primaryData.length - 1
     }
 
+    const applyAutoWindow = () => {
+      if (!chart || !primaryData || primaryData.length === 0) return
+      // 固定顯示最後 100 根，這樣蠟燭大小才清楚
+      const windowSize = 100 
+      const n = primaryData.length
+      const lastIndex = n - 1
+      const from = Math.max(lastIndex - windowSize + 1, 0)
+      const to = lastIndex + 1
+
+      const ts = chart.timeScale()
+      isProgrammaticChangeRef.current = true
+      ts.setVisibleLogicalRange({ from, to })
+    }
+
     // 核心優化：如果 series 已經存在，則使用增量更新
     const updateOrSetSeries = (source, data) => {
       if (data.length === 0) return
@@ -346,13 +360,13 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       const isSubMinute = interval < 60
 
       if (!hasAutoFitRef.current) {
-        // 首次載入：自動適應內容
-        chart.timeScale().fitContent()
+        // 首次載入：套用 100 根視窗
+        applyAutoWindow()
         hasAutoFitRef.current = true
       } else if (autoModeRef.current) {
         // 監控模式下，僅當數據有更新時才嘗試跟隨最新 K 線
         if (monitoring && isSubMinute) {
-          // 不再強行調用 applyAutoWindow，讓 Lightweight Charts 的原生滾動處理
+          applyAutoWindow()
           chart.timeScale().scrollToRealTime()
         }
       }
