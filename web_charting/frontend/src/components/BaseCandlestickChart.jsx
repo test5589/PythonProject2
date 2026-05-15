@@ -287,6 +287,7 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
 
       let series = seriesMapRef.current.get(source)
       const isPrimarySeries = source === primarySource
+      const isSubMinute = interval < 60
 
       if (!series) {
         const colors = COLORS[source]
@@ -305,9 +306,8 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
         series.setData(data)
         seriesMapRef.current.set(source, series)
       } else {
-        // 監控模式下使用增量更新，避免閃爍
-        if (monitoring) {
-          // 只更新最後幾根 K 線（通常是最新的一根）
+        // 僅在「秒級監控」模式下使用增量更新，分鐘級別或非監控模式使用 setData 確保數據完整
+        if (monitoring && isSubMinute) {
           const lastFew = data.slice(-2)
           lastFew.forEach(d => series.update(d))
         } else {
@@ -335,16 +335,21 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
     }
 
     try {
+      const isSubMinute = interval < 60
+
       if (!hasAutoFitRef.current) {
-        if (interval < 60) {
+        // 首次載入：分鐘以上 fitContent，秒級別捲動到最後一根
+        if (isSubMinute) {
           chart.timeScale().scrollToRealTime()
         } else {
           chart.timeScale().fitContent()
         }
         hasAutoFitRef.current = true
       } else if (autoModeRef.current) {
-        if (monitoring) {
-          if (interval < 60) applyAutoWindow()
+        // 僅在「秒級監控」模式下才自動捲動到最新時間
+        // 如果是分鐘級別，且數據是歷史數據，則不強行捲動到現在時間點
+        if (monitoring && isSubMinute) {
+          applyAutoWindow()
           chart.timeScale().scrollToRealTime()
         }
       }
