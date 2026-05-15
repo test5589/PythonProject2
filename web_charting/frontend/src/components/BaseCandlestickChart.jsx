@@ -221,11 +221,9 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
   // 當監控狀態改變時，重置使用者互動標記
   useEffect(() => {
     if (monitoring) {
-      // 啟動監控時，重置標記，允許自動跟隨
-      userInteractedRef.current = false
-      console.log('🎬 啟動監控模式，允許自動跟隨最新 K 線')
+      autoModeRef.current = true
     } else {
-      console.log('⏹ 停止監控模式')
+      autoModeRef.current = false
     }
   }, [monitoring])
 
@@ -235,7 +233,17 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
     }
 
     const is1s = Number(interval) === 1
-    const silentMode = monitoring && is1s
+    const silentMode = monitoring
+
+    // 🛡️ [尊重原始邏輯] 每次數據發生重大變化或切換時，先清除舊的 series 避免衝突
+    seriesMapRef.current.forEach(series => {
+      try {
+        chartRef.current.removeSeries(series)
+      } catch (e) {
+        // 忽略移除失敗（可能已被移除）
+      }
+    })
+    seriesMapRef.current.clear()
 
     // 按資料來源分組
     const groupedData = {

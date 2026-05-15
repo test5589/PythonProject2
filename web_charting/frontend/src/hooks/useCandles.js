@@ -125,6 +125,7 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
     const silentMode = monitoring // 只要監控就靜音
 
     if (!silentMode) {
+      // 僅在非監控模式下顯示詳細載入日誌
       console.log('🔄 載入 K 線資料:', { symbol, interval, dataSource })
     }
 
