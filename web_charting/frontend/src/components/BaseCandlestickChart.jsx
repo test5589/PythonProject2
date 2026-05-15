@@ -342,20 +342,6 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       updateOrSetSeries(source, data)
     })
 
-    const applyAutoWindow = () => {
-      if (!chart || !primaryData || primaryData.length === 0) return
-      const n = primaryData.length
-      const windowSize = targetWindowSizeRef.current || 100
-      const size = Math.max(10, Math.min(windowSize, n))
-      const lastIndex = n - 1
-      const from = Math.max(lastIndex - size + 1, 0)
-      const to = lastIndex + 1
-
-      const ts = chart.timeScale()
-      isProgrammaticChangeRef.current = true
-      ts.setVisibleLogicalRange({ from, to })
-    }
-
     try {
       const isSubMinute = interval < 60
 
