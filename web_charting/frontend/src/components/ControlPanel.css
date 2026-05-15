@@ -1,0 +1,43 @@
+.control-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 12px 16px;
+  background: #161b22;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  flex-wrap: wrap;
+}
+
+.control-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.control-label {
+  color: #c9d1d9;
+  font-weight: 500;
+}
+
+.control-panel .ant-radio-button-wrapper {
+  background: #21262d;
+  border-color: #30363d;
+  color: #c9d1d9;
+}
+
+.control-panel .ant-radio-button-wrapper:hover {
+  color: #58a6ff;
+}
+
+.control-panel .ant-radio-button-wrapper-checked {
+  background: #238636;
+  border-color: #238636;
+  color: white;
+}
+
+.control-panel .ant-radio-button-wrapper-checked:hover {
+  background: #2ea043;
+  border-color: #2ea043;
+}

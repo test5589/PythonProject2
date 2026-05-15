@@ -1,0 +1,28 @@
+======================================================================
+📊 測試報告
+======================================================================
+📈 測試統計:
+   總測試數: 19
+   成功: 14
+   失敗: 3
+   錯誤: 2
+   跳過: 0
+   成功率: 73.7%
+
+🎯 測試狀態: ❌ 有測試失敗 (紅色)
+
+💥 失敗的測試 (3):
+   1. test_api_error_handling (test_api.TestBinanceAPIClient.test_api_error_handling)
+      └─ AssertionError: 'Invalid symbol' not found in 'API 請求失敗'
+   2. test_connection_error_handling (test_api.TestBinanceAPIClient.test_connection_error_handling)
+      └─ AssertionError: '網路連線錯誤' not found in '網路連線失敗，請檢查網路連接'
+   3. test_timeout_handling (test_api.TestBinanceAPIClient.test_timeout_handling)
+      └─ AssertionError: '請求超時' not found in '網路連線失敗，請檢查網路連接'
+
+🚨 錯誤的測試 (2):
+   1. test_api_error (test_api.TestExceptions.test_api_error)
+      └─ AttributeError: 'APIError' object has no attribute 'message'
+   2. test_network_error (test_api.TestExceptions.test_network_error)
+      └─ AttributeError: 'NetworkError' object has no attribute 'message'
+
+======================================================================
