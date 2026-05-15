@@ -338,18 +338,13 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       const isSubMinute = interval < 60
 
       if (!hasAutoFitRef.current) {
-        // 首次載入：分鐘以上 fitContent，秒級別捲動到最後一根
-        if (isSubMinute) {
-          chart.timeScale().scrollToRealTime()
-        } else {
-          chart.timeScale().fitContent()
-        }
+        // 首次載入：自動適應內容
+        chart.timeScale().fitContent()
         hasAutoFitRef.current = true
       } else if (autoModeRef.current) {
-        // 僅在「秒級監控」模式下才自動捲動到最新時間
-        // 如果是分鐘級別，且數據是歷史數據，則不強行捲動到現在時間點
+        // 監控模式下，僅當數據有更新時才嘗試跟隨最新 K 線
         if (monitoring && isSubMinute) {
-          applyAutoWindow()
+          // 不再強行調用 applyAutoWindow，讓 Lightweight Charts 的原生滾動處理
           chart.timeScale().scrollToRealTime()
         }
       }

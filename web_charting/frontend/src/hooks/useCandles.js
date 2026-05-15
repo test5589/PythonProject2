@@ -119,23 +119,30 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
   }, [])
 
   const loadCandles = useCallback(async () => {
-    // 監控模式下且是 1 秒 timeframe，使用靜音模式減少日誌
+    // 只要在監控模式下，一律使用靜音模式減少日誌
     const isSubMinute = Number(interval) < 60
     const is1s = Number(interval) === 1
-    const silentMode = monitoring && is1s
+    const silentMode = monitoring // 只要監控就靜音
 
     if (!silentMode) {
       console.log('🔄 載入 K 線資料:', { symbol, interval, dataSource })
     }
 
-    setLoading(monitoring ? false : true) // 監控模式下靜默加載，不轉圈圈
+    // 當 interval 改變時，應該重新全量加載而非增量合併
+    const isIntervalChanged = interval !== intervalRef.current
+    if (isIntervalChanged) {
+      setCandlesData([])
+      intervalRef.current = interval
+    }
+
+    setLoading(monitoring ? false : true)
     try {
-      // 監控模式下只抓取最近的資料進行增量更新
-      const effectiveLimit = monitoring && isSubMinute ? 100 : 3000
+      // 監控模式下只抓取最近的資料進行增量更新，減少網路負擔
+      const effectiveLimit = monitoring && isSubMinute ? 200 : 3000
 
       const params = new URLSearchParams({
         symbol,
-        interval,
+        interval: String(interval),
         limit: String(effectiveLimit),
       })
 
@@ -156,54 +163,27 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
 
       const data = await response.json()
 
-      if (typeof data.interval === 'number' && data.interval !== intervalRef.current) {
-        return
-      }
-
       if (data.candles && data.candles.length > 0) {
         setCurrentWindowCount(data.candles.length)
 
-        if (is1s && monitoring) {
-          const latest = data.candles[data.candles.length - 1]
-          const latestTs = latest?.timestamp
-          if (latestTs) {
-            if (last1sTimestampRef.current != null && latestTs <= last1sTimestampRef.current) {
-              noProgressCounterRef.current += 1
-            } else {
-              last1sTimestampRef.current = latestTs
-              noProgressCounterRef.current = 0
-            }
-
-            if (noProgressCounterRef.current >= 15) { // 稍微放寬警告閾值
-              const now = Date.now()
-              if (!lastStallWarningRef.current || now - lastStallWarningRef.current > 60000) {
-                lastStallWarningRef.current = now
-                message.warning('1 秒數據更新緩慢，請檢查後端監控狀態')
-              }
-            }
-          }
-        }
-
-        // 增量更新邏輯：與現有資料合併，避免全量重新渲染
+        // 增量更新邏輯優化
         setCandlesData((prev) => {
           const prevList = Array.isArray(prev) ? prev : []
-          if (prevList.length === 0 || !monitoring) {
+          // 如果是切換 interval、或是非監控模式，直接使用新數據
+          if (prevList.length === 0 || !monitoring || isIntervalChanged) {
             return data.candles
           }
 
-          // 只合併新資料
+          // 合併邏輯：確保 interval 一致才合併
           const lastTsInPrev = prevList[prevList.length - 1].timestamp
           const newCandles = data.candles.filter(c => c.timestamp >= lastTsInPrev)
           
           if (newCandles.length === 0) return prevList
 
-          // 使用 Map 進行去重合併，保持效能
           const candleMap = new Map(prevList.map(c => [c.timestamp, c]))
           newCandles.forEach(c => candleMap.set(c.timestamp, c))
           
           const merged = Array.from(candleMap.values()).sort((a, b) => a.timestamp - b.timestamp)
-          
-          // 保持資料長度，避免無限制增長
           return merged.slice(-3000)
         })
 
