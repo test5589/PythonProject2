@@ -142,7 +142,6 @@ function App() {
 
   // 初始載入和參數變化時重新載入
   useEffect(() => {
-    console.log('🎬 useEffect 觸發，準備載入數據')
     loadCandles()
     fetchMonitorStatus()
   }, [loadCandles, fetchMonitorStatus])
@@ -152,13 +151,11 @@ function App() {
       return
     }
 
-    console.log('⏱ 啟動監控模式，每秒自動載入 K 線')
     const id = window.setInterval(() => {
       loadCandles()
     }, 1000)
 
     return () => {
-      console.log('⏹ 停止監控模式自動載入')
       window.clearInterval(id)
     }
   }, [monitoring, loadCandles])

@@ -39,13 +39,7 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
     const containerWidth = chartContainerRef.current.clientWidth
     const containerHeight = chartContainerRef.current.clientHeight
     
-    console.log('📐 Chart container size:', { 
-      width: containerWidth, 
-      height: containerHeight 
-    })
-
     if (containerWidth === 0 || containerHeight === 0) {
-      console.error('❌ Chart container has zero size!')
       return
     }
 
@@ -128,9 +122,6 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       lastUserInteractionRef.current = now
 
       // 任何手動操作都先關閉自動模式與自動跟隨
-      if (autoModeRef.current) {
-        console.log('👆 使用者操作圖表（滾輪/拖拉），暫停自動視窗與自動跟隨最新 K 線')
-      }
       autoModeRef.current = false
 
       // 有新的操作就取消之前排程的自動恢復
@@ -192,21 +183,7 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       if (chartContainerRef.current && chart) {
         const width = chartContainerRef.current.clientWidth
         const height = chartContainerRef.current.clientHeight
-        console.log('🔄 強制調整圖表大小:', { width, height })
         chart.applyOptions({ width, height })
-        
-        // 檢查 canvas 是否存在
-        const canvas = chartContainerRef.current.querySelector('canvas')
-        if (canvas) {
-          console.log('✅ Canvas 元素已找到:', {
-            width: canvas.width,
-            height: canvas.height,
-            display: window.getComputedStyle(canvas).display,
-            visibility: window.getComputedStyle(canvas).visibility
-          })
-        } else {
-          console.error('❌ 找不到 Canvas 元素！')
-        }
       }
     }, 100)
 
@@ -254,20 +231,11 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
 
   useEffect(() => {
     if (!chartRef.current || !candlesData || candlesData.length === 0) {
-      console.log('⚠️ No chart or data:', { 
-        hasChart: !!chartRef.current, 
-        dataLength: candlesData?.length 
-      })
       return
     }
 
-    console.log('📊 Processing candles data:', candlesData.length, 'candles')
-
-    // 清除舊的series
-    seriesMapRef.current.forEach(series => {
-      chartRef.current.removeSeries(series)
-    })
-    seriesMapRef.current.clear()
+    const is1s = Number(interval) === 1
+    const silentMode = monitoring && is1s
 
     // 按資料來源分組
     const groupedData = {
@@ -278,7 +246,6 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
 
     candlesData.forEach(candle => {
       const data = {
-        // 使用資料中的 timestamp（秒）作為圖表時間
         time: Math.floor(candle.timestamp),
         open: parseFloat(candle.open),
         high: parseFloat(candle.high),
@@ -286,7 +253,6 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
         close: parseFloat(candle.close),
       }
 
-      // 將 real_no-trade-fill 視為 real，其餘維持 Aggregation / 低優先級分組
       const source =
         candle.data_source === 'real_no-trade-fill'
           ? 'real'
@@ -301,42 +267,61 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       }
     })
 
-    console.log('📊 Grouped data:', {
-      real: groupedData.real.length,
-      Aggregation: groupedData.Aggregation.length,
-      lowPriority: groupedData.lowPriority.length
-    })
-
     const chart = chartRef.current
 
-    // 選擇用來計算自動視窗的「主資料列」（優先 real，其次 Aggregation，再來 lowPriority）
-    const primaryData =
-      groupedData.real.length > 0
-        ? groupedData.real
-        : (groupedData.Aggregation.length > 0
-            ? groupedData.Aggregation
-            : groupedData.lowPriority)
-
-    // 記錄主資料來源的最後一根 index，提供給視窗變化監聽用來判斷「距離最新多少根」
-    if (primaryData && primaryData.length > 0) {
-      lastLogicalIndexRef.current = primaryData.length - 1
-    } else {
-      lastLogicalIndexRef.current = null
-    }
-
-    // 主資料來源，用來決定在哪一個 series 上顯示「當前價格線」
+    // 選擇主資料來源
     let primarySource = null
-    if (groupedData.real.length > 0) {
-      primarySource = 'real'
-    } else if (groupedData.Aggregation.length > 0) {
-      primarySource = 'Aggregation'
-    } else if (groupedData.lowPriority.length > 0) {
-      primarySource = 'lowPriority'
+    if (groupedData.real.length > 0) primarySource = 'real'
+    else if (groupedData.Aggregation.length > 0) primarySource = 'Aggregation'
+    else if (groupedData.lowPriority.length > 0) primarySource = 'lowPriority'
+
+    const primaryData = groupedData[primarySource] || []
+    if (primaryData.length > 0) {
+      lastLogicalIndexRef.current = primaryData.length - 1
     }
+
+    // 核心優化：如果 series 已經存在，則使用增量更新
+    const updateOrSetSeries = (source, data) => {
+      if (data.length === 0) return
+      data.sort((a, b) => a.time - b.time)
+
+      let series = seriesMapRef.current.get(source)
+      const isPrimarySeries = source === primarySource
+
+      if (!series) {
+        const colors = COLORS[source]
+        series = chart.addCandlestickSeries({
+          upColor: colors.up,
+          downColor: colors.down,
+          borderUpColor: colors.up,
+          borderDownColor: colors.down,
+          wickUpColor: colors.up,
+          wickDownColor: colors.down,
+          priceLineVisible: isPrimarySeries,
+          lastValueVisible: isPrimarySeries,
+          priceLineColor: isPrimarySeries ? '#FFD700' : undefined,
+          priceLineWidth: isPrimarySeries ? 2 : undefined,
+        })
+        series.setData(data)
+        seriesMapRef.current.set(source, series)
+      } else {
+        // 監控模式下使用增量更新，避免閃爍
+        if (monitoring) {
+          // 只更新最後幾根 K 線（通常是最新的一根）
+          const lastFew = data.slice(-2)
+          lastFew.forEach(d => series.update(d))
+        } else {
+          series.setData(data)
+        }
+      }
+    }
+
+    Object.entries(groupedData).forEach(([source, data]) => {
+      updateOrSetSeries(source, data)
+    })
 
     const applyAutoWindow = () => {
       if (!chart || !primaryData || primaryData.length === 0) return
-
       const n = primaryData.length
       const windowSize = targetWindowSizeRef.current || 100
       const size = Math.max(10, Math.min(windowSize, n))
@@ -347,145 +332,25 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       const ts = chart.timeScale()
       isProgrammaticChangeRef.current = true
       ts.setVisibleLogicalRange({ from, to })
-      console.log('🎯 套用自動視窗:', { from, to, size, lastIndex })
-      // isProgrammaticChangeRef 會在監聽器中自動重置
     }
 
-    // 檢查 chart 實例是否有效（針對 v4 API：addCandlestickSeries）
-    console.log('🔍 檢查 chart 實例:', {
-      hasChartRef: !!chart,
-      chartType: typeof chart,
-      hasAddCandlestickSeries: typeof chart?.addCandlestickSeries,
-      chartKeys: chart ? Object.keys(chart).slice(0, 10) : []
-    })
-
-    if (!chart || typeof chart.addCandlestickSeries !== 'function') {
-      console.error('❌ Chart API 不支援 addCandlestickSeries，無法建立 K 線 series')
-      console.error('   chartRef.current:', chart)
-      return
-    }
-
-    // 創建不同的 candlestick series 並應用不同顏色
-    Object.entries(groupedData).forEach(([source, data]) => {
-      if (data.length === 0) return
-
-      // 按時間排序（Lightweight Charts 要求）
-      data.sort((a, b) => a.time - b.time)
-
-      console.log(`📈 Creating ${source} series with ${data.length} candles`)
-      if (data.length > 0) {
-        console.log(`  First: time=${data[0].time}, OHLC=${data[0].open}/${data[0].high}/${data[0].low}/${data[0].close}`)
-        console.log(`  Last: time=${data[data.length-1].time}`)
-      }
-
-      const colors = COLORS[source]
-
-      // 只有主資料來源顯示「當前價格線」與最後價標籤
-      const isPrimarySeries = source === primarySource
-
-      let series
-      try {
-        // 使用 v4 API：chart.addCandlestickSeries(options)
-        console.log('🧩 使用 addCandlestickSeries 建立 series')
-        series = chart.addCandlestickSeries({
-          upColor: colors.up,
-          downColor: colors.down,
-          borderUpColor: colors.up,
-          borderDownColor: colors.down,
-          wickUpColor: colors.up,
-          wickDownColor: colors.down,
-          // 僅在主 series 上顯示當前價格線與最後價標籤，其他來源保持關閉
-          priceLineVisible: isPrimarySeries,
-          lastValueVisible: isPrimarySeries,
-          // 給當前價格線一個較明顯的顏色
-          priceLineColor: isPrimarySeries ? '#FFD700' : undefined,
-          priceLineWidth: isPrimarySeries ? 2 : undefined,
-        })
-      } catch (e) {
-        console.error('❌ 建立 series 時發生錯誤:', e)
-        return
-      }
-
-      try {
-        series.setData(data)
-        seriesMapRef.current.set(source, series)
-        console.log(`✅ ${source} series created successfully`)
-      } catch (error) {
-        console.error(`❌ Error creating ${source} series:`, error)
-      }
-    })
-
-    // 自動調整視圖：
-    // - 第一次有數據時：分鐘以上用 fitContent，秒級別用「最後 N 根」視窗
-    // - 之後：在監控模式 + 秒級別 + 自動模式下，維持最後 N 根視窗跟隨最新 K 線
     try {
-      const isSubMinute = interval < 60
-
       if (!hasAutoFitRef.current) {
-        if (isSubMinute) {
-          // 秒級別首次載入改用簡單的 scrollToRealTime，避免視窗頻繁變動造成畫面亂飄
-          if (chartRef.current) {
-            chartRef.current.timeScale().scrollToRealTime()
-          }
-          hasAutoFitRef.current = true
-          console.log('✅ Sub-minute chart initialized with scrollToRealTime (simple mode)')
+        if (interval < 60) {
+          chart.timeScale().scrollToRealTime()
         } else {
-          chartRef.current.timeScale().fitContent()
-          hasAutoFitRef.current = true
-          console.log('✅ Chart rendered and auto-fitted once')
+          chart.timeScale().fitContent()
         }
-      } else {
-        // 只有在自動模式下才會根據最新 K 線調整視窗
-        if (autoModeRef.current) {
-          if (monitoring) {
-            // 監控 + 自動模式：秒級別使用固定視窗寬度，並跟隨最新 K 線
-            if (chartRef.current) {
-              if (isSubMinute) {
-                applyAutoWindow()
-              }
-              chartRef.current.timeScale().scrollToRealTime()
-            }
-            console.log('🔄 監控模式 + 自動模式：自動視窗 + 跟隨最新 K 線', { isSubMinute })
-          } else if (!isSubMinute) {
-            // 非監控模式：僅對分鐘以上 timeframe 嘗試跟隨
-            if (chartRef.current) {
-              chartRef.current.timeScale().scrollToRealTime()
-            }
-            console.log('🔄 非監控模式（分鐘以上）+ 自動模式：scrollToRealTime')
-          } else {
-            console.log('ℹ️ 非監控 + 秒級，自動模式下不強制跟隨')
-          }
-        } else {
-          console.log('ℹ️ 手動瀏覽模式：不自動跟隨最新 K 線、不改變視窗寬度')
+        hasAutoFitRef.current = true
+      } else if (autoModeRef.current) {
+        if (monitoring) {
+          if (interval < 60) applyAutoWindow()
+          chart.timeScale().scrollToRealTime()
         }
       }
-
-      // 強制更新一次大小以確保可見，但不再呼叫 fitContent
-      setTimeout(() => {
-        if (chartRef.current && chartContainerRef.current) {
-          const width = chartContainerRef.current.clientWidth
-          const height = chartContainerRef.current.clientHeight
-          console.log('🔄 數據渲染後調整大小:', { width, height })
-          chartRef.current.applyOptions({ width, height })
-          
-          // 最終檢查
-          const canvases = chartContainerRef.current.querySelectorAll('canvas')
-          console.log(`🎨 找到 ${canvases.length} 個 Canvas 元素`)
-          canvases.forEach((canvas, i) => {
-            console.log(`  Canvas ${i}:`, {
-              width: canvas.width,
-              height: canvas.height,
-              offsetWidth: canvas.offsetWidth,
-              offsetHeight: canvas.offsetHeight,
-              visible: canvas.offsetWidth > 0 && canvas.offsetHeight > 0
-            })
-          })
-        }
-      }, 200)
     } catch (error) {
-      console.error('❌ Error fitting content:', error)
+      if (!silentMode) console.error('❌ Error updating chart view:', error)
     }
-
   }, [candlesData])
 
   return (
