@@ -101,11 +101,11 @@ class TestDataManager(unittest.TestCase):
         """測試插入數據函數"""
         test_kline = {'open': 50000, 'high': 51000, 'low': 49000, 'close': 50500, 'volume': 100}
         
-        insert_data('crypto', 'BTCUSDT', 60, test_kline)
+        insert_data('crypto', 'BTCUSDT', 60, test_kline, 'real')
         
         mock_insert.assert_called_once_with(
             'crypto', 'BTCUSDT', 60, test_kline, 
-            'real', None, None, None, None
+            'real', None, None, None, None, False
         )
 
 

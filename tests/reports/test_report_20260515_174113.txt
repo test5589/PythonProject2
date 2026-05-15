@@ -1,0 +1,29 @@
+======================================================================
+📊 測試報告
+======================================================================
+📈 測試統計:
+   總測試數: 18
+   成功: 10
+   失敗: 0
+   錯誤: 8
+   跳過: 0
+   成功率: 55.6%
+
+🎯 測試狀態: ❌ 有測試失敗 (紅色)
+
+🚨 錯誤的測試 (8):
+   1. tests.api_endpoints.test_api (unittest.loader._FailedTest.tests.api_endpoints.test_api)
+      └─ ModuleNotFoundError: No module named 'requests'
+   2. tests.api_endpoints.test_api_refactoring (unittest.loader._FailedTest.tests.api_endpoints.test_api_refactoring)
+      └─ ModuleNotFoundError: No module named 'requests'
+   3. tests.api_endpoints.test_web_charting_api (unittest.loader._FailedTest.tests.api_endpoints.test_web_charting_api)
+      └─ ModuleNotFoundError: No module named 'requests'
+   4. tests.api_endpoints.test_web_charting_api_candles (unittest.loader._FailedTest.tests.api_endpoints.test_web_charting_api_candles)
+      └─ ModuleNotFoundError: No module named 'requests'
+   5. test_interval_validation (tests.integration.test_database.TestConfigValidation.test_interval_validation)
+   6. test_symbol_validation (tests.integration.test_database.TestConfigValidation.test_symbol_validation)
+   7. test_trading_config_import (tests.integration.test_database.TestConfigValidation.test_trading_config_import)
+   8. tests.integration.test_web_charting_data (unittest.loader._FailedTest.tests.integration.test_web_charting_data)
+      └─ ModuleNotFoundError: No module named 'sqlalchemy'
+
+======================================================================

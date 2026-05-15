@@ -1,0 +1,22 @@
+======================================================================
+📊 測試報告
+======================================================================
+📈 測試統計:
+   總測試數: 27
+   成功: 24
+   失敗: 0
+   錯誤: 3
+   跳過: 0
+   成功率: 88.9%
+
+🎯 測試狀態: ❌ 有測試失敗 (紅色)
+
+🚨 錯誤的測試 (3):
+   1. tests.ai_diagnostics.test_advanced_capacity_test (unittest.loader._FailedTest.tests.ai_diagnostics.test_advanced_capacity_test)
+      └─ ModuleNotFoundError: No module named 'modules.utils.api_connector'
+   2. tests.ai_diagnostics.test_capacity_test (unittest.loader._FailedTest.tests.ai_diagnostics.test_capacity_test)
+      └─ ModuleNotFoundError: No module named 'modules.utils.api_connector'
+   3. tests.ai_diagnostics.test_db_view (unittest.loader._FailedTest.tests.ai_diagnostics.test_db_view)
+      └─ sqlite3.OperationalError: unable to open database file
+
+======================================================================

@@ -64,7 +64,8 @@ class TestBinanceAPIClient(unittest.TestCase):
         with self.assertRaises(APIError) as context:
             self.client._make_request('GET', '/api/v3/klines', {"symbol": "INVALID"})
         
-        self.assertIn("Invalid symbol", str(context.exception))
+        # 由於安全性增強，實際訊息已被標準化
+        self.assertIn("API 不支援該交易對", str(context.exception))
     
     @patch('modules.utils.api.api_client.requests.Session.get')
     def test_rate_limit_retry(self, mock_get: MagicMock) -> None:
@@ -72,6 +73,8 @@ class TestBinanceAPIClient(unittest.TestCase):
         # 第一次請求返回429，第二次成功
         mock_response_429 = Mock()
         mock_response_429.status_code = 429
+        # 添加 json() 方法模擬返回速率限制詳情
+        mock_response_429.json.return_value = {"code": -1003, "msg": "Too many requests"}
         
         mock_response_200 = Mock()
         mock_response_200.status_code = 200
@@ -94,7 +97,7 @@ class TestBinanceAPIClient(unittest.TestCase):
             with self.assertRaises(NetworkError) as context:
                 self.client._make_request('GET', '/api/v3/time')
         
-        self.assertIn("請求超時", str(context.exception))
+        self.assertIn("網路連線失敗", str(context.exception))
         # 應該重試3次加上原始請求
         self.assertEqual(mock_get.call_count, 4)
     
@@ -107,7 +110,7 @@ class TestBinanceAPIClient(unittest.TestCase):
             with self.assertRaises(NetworkError) as context:
                 self.client._make_request('GET', '/api/v3/time')
         
-        self.assertIn("網路連線錯誤", str(context.exception))
+        self.assertIn("網路連線失敗", str(context.exception))
         self.assertEqual(mock_get.call_count, 4)
 
 
@@ -136,21 +139,20 @@ class TestExceptions(unittest.TestCase):
         """測試API錯誤異常"""
         from modules.utils.exceptions import APIError
         
-        error = APIError("測試錯誤", {"code": 400})
+        error = APIError("測試錯誤", {"status_code": 400})
         
-        self.assertEqual(error.message, "測試錯誤")
-        self.assertEqual(error.details, {"code": 400})
-        self.assertIn("測試錯誤", str(error))
-        self.assertIn("code=400", str(error))
+        self.assertEqual(error.safe_message, "API 請求失敗")
+        self.assertEqual(error.details, {"status_code": 400})
+        self.assertIn("API 請求失敗", str(error))
     
     def test_network_error(self) -> None:
         """測試網路錯誤異常"""
         from modules.utils.exceptions import NetworkError
         
         error = NetworkError("連接失敗")
-        
-        self.assertEqual(error.message, "連接失敗")
-        self.assertEqual(str(error), "連接失敗")
+        self.assertEqual(error.safe_message, "網路連線失敗，請檢查網路連接")
+        # TradingBotException 的 __str__ 返回 safe_message
+        self.assertEqual(str(error), "網路連線失敗，請檢查網路連接")
 
 
 if __name__ == '__main__':

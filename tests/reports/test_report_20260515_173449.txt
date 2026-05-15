@@ -1,0 +1,52 @@
+======================================================================
+📊 測試報告
+======================================================================
+📈 測試統計:
+   總測試數: 33
+   成功: 8
+   失敗: 1
+   錯誤: 24
+   跳過: 0
+   成功率: 24.2%
+
+🎯 測試狀態: ❌ 有測試失敗 (紅色)
+
+💥 失敗的測試 (1):
+   1. test_insert_data_function (tests.integration.test_database.TestDataManager.test_insert_data_function)
+      └─ [1;35mAssertionError[0m: [35mexpected call not found.
+
+🚨 錯誤的測試 (24):
+   1. tests.ai_diagnostics.test_advanced_capacity_test (unittest.loader._FailedTest.tests.ai_diagnostics.test_advanced_capacity_test)
+      └─ ModuleNotFoundError: No module named 'modules.utils.api_connector'
+   2. tests.ai_diagnostics.test_capacity_test (unittest.loader._FailedTest.tests.ai_diagnostics.test_capacity_test)
+      └─ ModuleNotFoundError: No module named 'modules.utils.api_connector'
+   3. tests.ai_diagnostics.test_db_view (unittest.loader._FailedTest.tests.ai_diagnostics.test_db_view)
+      └─ sqlite3.OperationalError: unable to open database file
+   4. tests.api_endpoints.test_api (unittest.loader._FailedTest.tests.api_endpoints.test_api)
+      └─ ModuleNotFoundError: No module named 'requests'
+   5. tests.api_endpoints.test_api_refactoring (unittest.loader._FailedTest.tests.api_endpoints.test_api_refactoring)
+      └─ ModuleNotFoundError: No module named 'requests'
+   6. tests.api_endpoints.test_web_charting_api (unittest.loader._FailedTest.tests.api_endpoints.test_web_charting_api)
+      └─ ModuleNotFoundError: No module named 'requests'
+   7. tests.api_endpoints.test_web_charting_api_candles (unittest.loader._FailedTest.tests.api_endpoints.test_web_charting_api_candles)
+      └─ ModuleNotFoundError: No module named 'requests'
+   8. test_message_creation (tests.integration.test_async_backfill.TestBackfillMessage.test_message_creation)
+   9. test_message_default_values (tests.integration.test_async_backfill.TestBackfillMessage.test_message_default_values)
+   10. test_message_representation (tests.integration.test_async_backfill.TestBackfillMessage.test_message_representation)
+   11. test_concurrent_send (tests.integration.test_async_backfill.TestMessageSender.test_concurrent_send)
+   12. test_message_order_preserved (tests.integration.test_async_backfill.TestMessageSender.test_message_order_preserved)
+   13. test_message_sender_initialization (tests.integration.test_async_backfill.TestMessageSender.test_message_sender_initialization)
+   14. test_message_sender_start_stop (tests.integration.test_async_backfill.TestMessageSender.test_message_sender_start_stop)
+   15. test_send_multiple_messages (tests.integration.test_async_backfill.TestMessageSender.test_send_multiple_messages)
+   16. test_send_single_message (tests.integration.test_async_backfill.TestMessageSender.test_send_single_message)
+   17. test_send_without_start (tests.integration.test_async_backfill.TestMessageSender.test_send_without_start)
+   18. test_stop_flushes_queue (tests.integration.test_async_backfill.TestMessageSender.test_stop_flushes_queue)
+   19. test_empty_message (tests.integration.test_async_backfill.TestMessageSenderEdgeCases.test_empty_message)
+   20. test_restart_sender (tests.integration.test_async_backfill.TestMessageSenderEdgeCases.test_restart_sender)
+   21. test_unicode_message (tests.integration.test_async_backfill.TestMessageSenderEdgeCases.test_unicode_message)
+   22. test_very_long_message (tests.integration.test_async_backfill.TestMessageSenderEdgeCases.test_very_long_message)
+   23. test_high_throughput (tests.integration.test_async_backfill.TestMessageSenderPerformance.test_high_throughput)
+   24. tests.integration.test_web_charting_data (unittest.loader._FailedTest.tests.integration.test_web_charting_data)
+      └─ ModuleNotFoundError: No module named 'database'
+
+======================================================================

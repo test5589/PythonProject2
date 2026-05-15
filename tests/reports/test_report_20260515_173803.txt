@@ -1,0 +1,35 @@
+======================================================================
+📊 測試報告
+======================================================================
+📈 測試統計:
+   總測試數: 21
+   成功: 10
+   失敗: 0
+   錯誤: 11
+   跳過: 0
+   成功率: 47.6%
+
+🎯 測試狀態: ❌ 有測試失敗 (紅色)
+
+🚨 錯誤的測試 (11):
+   1. tests.ai_diagnostics.test_advanced_capacity_test (unittest.loader._FailedTest.tests.ai_diagnostics.test_advanced_capacity_test)
+      └─ ModuleNotFoundError: No module named 'modules.utils.api_connector'
+   2. tests.ai_diagnostics.test_capacity_test (unittest.loader._FailedTest.tests.ai_diagnostics.test_capacity_test)
+      └─ ModuleNotFoundError: No module named 'modules.utils.api_connector'
+   3. tests.ai_diagnostics.test_db_view (unittest.loader._FailedTest.tests.ai_diagnostics.test_db_view)
+      └─ sqlite3.OperationalError: unable to open database file
+   4. tests.api_endpoints.test_api (unittest.loader._FailedTest.tests.api_endpoints.test_api)
+      └─ ModuleNotFoundError: No module named 'requests'
+   5. tests.api_endpoints.test_api_refactoring (unittest.loader._FailedTest.tests.api_endpoints.test_api_refactoring)
+      └─ ModuleNotFoundError: No module named 'requests'
+   6. tests.api_endpoints.test_web_charting_api (unittest.loader._FailedTest.tests.api_endpoints.test_web_charting_api)
+      └─ ModuleNotFoundError: No module named 'requests'
+   7. tests.api_endpoints.test_web_charting_api_candles (unittest.loader._FailedTest.tests.api_endpoints.test_web_charting_api_candles)
+      └─ ModuleNotFoundError: No module named 'requests'
+   8. test_interval_validation (tests.integration.test_database.TestConfigValidation.test_interval_validation)
+   9. test_symbol_validation (tests.integration.test_database.TestConfigValidation.test_symbol_validation)
+   10. test_trading_config_import (tests.integration.test_database.TestConfigValidation.test_trading_config_import)
+   11. tests.integration.test_web_charting_data (unittest.loader._FailedTest.tests.integration.test_web_charting_data)
+      └─ ModuleNotFoundError: No module named 'sqlalchemy'
+
+======================================================================
