@@ -26,8 +26,13 @@ def discover_and_run_tests(test_dir: str = None) -> unittest.TestResult:
     
     # 發現測試
     loader = unittest.TestLoader()
-    start_dir = test_dir
-    suite = loader.discover(start_dir, pattern='test_*.py')
+    # 專案根目錄
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    # 測試目錄
+    test_dir = os.path.dirname(__file__)
+    
+    # 遞歸發現所有子目錄中的測試
+    suite = loader.discover(start_dir=test_dir, pattern='test_*.py', top_level_dir=project_root)
     
     # 運行測試
     runner = unittest.TextTestRunner(

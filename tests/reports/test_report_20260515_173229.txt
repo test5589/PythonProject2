@@ -1,0 +1,68 @@
+======================================================================
+📊 測試報告
+======================================================================
+📈 測試統計:
+   總測試數: 39
+   成功: 14
+   失敗: 3
+   錯誤: 22
+   跳過: 0
+   成功率: 35.9%
+
+🎯 測試狀態: ❌ 有測試失敗 (紅色)
+
+💥 失敗的測試 (3):
+   1. test_connection_error_handling (tests.api_endpoints.test_api.TestBinanceAPIClient.test_connection_error_handling)
+      └─ AssertionError: '網路連線錯誤' not found in '網路連線失敗，請檢查網路連接'
+   2. test_timeout_handling (tests.api_endpoints.test_api.TestBinanceAPIClient.test_timeout_handling)
+      └─ AssertionError: '請求超時' not found in '網路連線失敗，請檢查網路連接'
+   3. test_insert_data_function (tests.integration.test_database.TestDataManager.test_insert_data_function)
+      └─ AssertionError: expected call not found.
+
+🚨 錯誤的測試 (22):
+   1. tests.ai_diagnostics.test_advanced_capacity_test (unittest.loader._FailedTest.tests.ai_diagnostics.test_advanced_capacity_test)
+      └─ ModuleNotFoundError: No module named 'modules.utils.api_connector'
+   2. tests.ai_diagnostics.test_capacity_test (unittest.loader._FailedTest.tests.ai_diagnostics.test_capacity_test)
+      └─ ModuleNotFoundError: No module named 'modules.utils.api_connector'
+   3. tests.ai_diagnostics.test_db_view (unittest.loader._FailedTest.tests.ai_diagnostics.test_db_view)
+      └─ sqlite3.OperationalError: unable to open database file
+   4. test_api_error (tests.api_endpoints.test_api.TestExceptions.test_api_error)
+      └─ AttributeError: 'APIError' object has no attribute 'message'
+   5. test_network_error (tests.api_endpoints.test_api.TestExceptions.test_network_error)
+      └─ AttributeError: 'NetworkError' object has no attribute 'message'
+   6. test_message_creation (tests.integration.test_async_backfill.TestBackfillMessage.test_message_creation)
+      └─ TypeError: BackfillMessage.__init__() got an unexpected keyword argument 'content'
+   7. test_message_default_values (tests.integration.test_async_backfill.TestBackfillMessage.test_message_default_values)
+      └─ TypeError: BackfillMessage.__init__() got an unexpected keyword argument 'content'
+   8. test_message_representation (tests.integration.test_async_backfill.TestBackfillMessage.test_message_representation)
+      └─ TypeError: BackfillMessage.__init__() got an unexpected keyword argument 'content'
+   9. test_concurrent_send (tests.integration.test_async_backfill.TestMessageSender.test_concurrent_send)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   10. test_message_order_preserved (tests.integration.test_async_backfill.TestMessageSender.test_message_order_preserved)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   11. test_message_sender_initialization (tests.integration.test_async_backfill.TestMessageSender.test_message_sender_initialization)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   12. test_message_sender_start_stop (tests.integration.test_async_backfill.TestMessageSender.test_message_sender_start_stop)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   13. test_send_multiple_messages (tests.integration.test_async_backfill.TestMessageSender.test_send_multiple_messages)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   14. test_send_single_message (tests.integration.test_async_backfill.TestMessageSender.test_send_single_message)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   15. test_send_without_start (tests.integration.test_async_backfill.TestMessageSender.test_send_without_start)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   16. test_stop_flushes_queue (tests.integration.test_async_backfill.TestMessageSender.test_stop_flushes_queue)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   17. test_empty_message (tests.integration.test_async_backfill.TestMessageSenderEdgeCases.test_empty_message)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   18. test_restart_sender (tests.integration.test_async_backfill.TestMessageSenderEdgeCases.test_restart_sender)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   19. test_unicode_message (tests.integration.test_async_backfill.TestMessageSenderEdgeCases.test_unicode_message)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   20. test_very_long_message (tests.integration.test_async_backfill.TestMessageSenderEdgeCases.test_very_long_message)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   21. test_high_throughput (tests.integration.test_async_backfill.TestMessageSenderPerformance.test_high_throughput)
+      └─ TypeError: MessageSender.__init__() takes 2 positional arguments but 3 were given
+   22. tests.integration.test_web_charting_data (unittest.loader._FailedTest.tests.integration.test_web_charting_data)
+      └─ ModuleNotFoundError: No module named 'database'
+
+======================================================================
