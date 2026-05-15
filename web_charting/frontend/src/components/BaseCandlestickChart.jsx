@@ -68,6 +68,7 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
         borderColor: '#30363d',
         timeVisible: true,
         secondsVisible: interval < 60,
+        autoScale: true, // 確保時間軸自適應
       },
       localization: {
         locale: 'zh-TW',
@@ -97,7 +98,11 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       },
       rightPriceScale: {
         borderColor: '#30363d',
+        autoScale: true, // 啟用價格軸自動縮放，避免蠟燭變扁
+        alignLabels: true,
       },
+      handleScroll: true,
+      handleScale: true,
     })
 
     chartRef.current = chart

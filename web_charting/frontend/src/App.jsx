@@ -187,8 +187,8 @@ function App() {
         {/* K線圖 */}
         <div style={{ 
           flex: 1, 
-          minHeight: 0,
-          height: '600px',
+          minHeight: '500px',
+          height: 'calc(100vh - 300px)',
           display: 'flex'
         }}>
           <CandlestickChart 
