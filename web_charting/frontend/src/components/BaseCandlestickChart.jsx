@@ -218,32 +218,45 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
     }
   }, [interval])
 
-  // 當監控狀態改變時，重置使用者互動標記
+  // 當監控狀態改變時，重置自動模式標記
   useEffect(() => {
     if (monitoring) {
       autoModeRef.current = true
     } else {
-      autoModeRef.current = false
+      // 非監控模式下，如果是秒級別預設開啟自動跟隨，分鐘級別則交給使用者手動
+      autoModeRef.current = interval < 60
     }
-  }, [monitoring])
+  }, [monitoring, interval])
+
+  // 追蹤上一次渲染的參數
+  const lastParamsRef = useRef({ symbol: null, interval: null })
+
+  // 🛡️ 處理參數變化：切換交易對或時間框架時，立即清除圖表
+  useEffect(() => {
+    if (!chartRef.current) return
+
+    const chart = chartRef.current
+    const isParamsChanged = 
+      lastParamsRef.current.symbol !== symbol || 
+      lastParamsRef.current.interval !== interval
+
+    if (isParamsChanged) {
+      seriesMapRef.current.forEach(series => {
+        try { chart.removeSeries(series) } catch (e) {}
+      })
+      seriesMapRef.current.clear()
+      lastParamsRef.current = { symbol, interval }
+      hasAutoFitRef.current = false // 重置自動縮放標記
+      lastLogicalIndexRef.current = null // 重置索引
+    }
+  }, [symbol, interval])
 
   useEffect(() => {
     if (!chartRef.current || !candlesData || candlesData.length === 0) {
       return
     }
 
-    const is1s = Number(interval) === 1
-    const silentMode = monitoring
-
-    // 🛡️ [尊重原始邏輯] 每次數據發生重大變化或切換時，先清除舊的 series 避免衝突
-    seriesMapRef.current.forEach(series => {
-      try {
-        chartRef.current.removeSeries(series)
-      } catch (e) {
-        // 忽略移除失敗（可能已被移除）
-      }
-    })
-    seriesMapRef.current.clear()
+    const chart = chartRef.current
 
     // 按資料來源分組
     const groupedData = {
@@ -266,18 +279,12 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
           ? 'real'
           : (candle.data_source || 'real')
 
-      if (source === 'real') {
-        groupedData.real.push(data)
-      } else if (source === 'Aggregation') {
-        groupedData.Aggregation.push(data)
-      } else {
-        groupedData.lowPriority.push(data)
-      }
+      if (source === 'real') groupedData.real.push(data)
+      else if (source === 'Aggregation') groupedData.Aggregation.push(data)
+      else groupedData.lowPriority.push(data)
     })
 
-    const chart = chartRef.current
-
-    // 選擇主資料來源
+    // 選擇主資料來源與應用數據
     let primarySource = null
     if (groupedData.real.length > 0) primarySource = 'real'
     else if (groupedData.Aggregation.length > 0) primarySource = 'Aggregation'
@@ -288,28 +295,13 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
       lastLogicalIndexRef.current = primaryData.length - 1
     }
 
-    const applyAutoWindow = () => {
-      if (!chart || !primaryData || primaryData.length === 0) return
-      // 固定顯示最後 100 根，這樣蠟燭大小才清楚
-      const windowSize = 100 
-      const n = primaryData.length
-      const lastIndex = n - 1
-      const from = Math.max(lastIndex - windowSize + 1, 0)
-      const to = lastIndex + 1
-
-      const ts = chart.timeScale()
-      isProgrammaticChangeRef.current = true
-      ts.setVisibleLogicalRange({ from, to })
-    }
-
-    // 核心優化：如果 series 已經存在，則使用增量更新
-    const updateOrSetSeries = (source, data) => {
+    // 更新或建立 Series
+    Object.entries(groupedData).forEach(([source, data]) => {
       if (data.length === 0) return
       data.sort((a, b) => a.time - b.time)
 
       let series = seriesMapRef.current.get(source)
       const isPrimarySeries = source === primarySource
-      const isSubMinute = interval < 60
 
       if (!series) {
         const colors = COLORS[source]
@@ -325,41 +317,38 @@ function BaseCandlestickChart({ symbol, interval, candlesData, loading, monitori
           priceLineColor: isPrimarySeries ? '#FFD700' : undefined,
           priceLineWidth: isPrimarySeries ? 2 : undefined,
         })
-        series.setData(data)
         seriesMapRef.current.set(source, series)
-      } else {
-        // 僅在「秒級監控」模式下使用增量更新，分鐘級別或非監控模式使用 setData 確保數據完整
-        if (monitoring && isSubMinute) {
-          const lastFew = data.slice(-2)
-          lastFew.forEach(d => series.update(d))
-        } else {
-          series.setData(data)
-        }
       }
-    }
-
-    Object.entries(groupedData).forEach(([source, data]) => {
-      updateOrSetSeries(source, data)
+      
+      // 使用穩定且 100% 安全的 setData
+      series.setData(data)
     })
 
-    try {
-      const isSubMinute = interval < 60
+    const applyAutoWindow = () => {
+      if (!chart || !primaryData || primaryData.length === 0) return
+      const windowSize = 100
+      const n = primaryData.length
+      const lastIndex = n - 1
+      const from = Math.max(lastIndex - windowSize + 1, 0)
+      const to = lastIndex + 1
 
+      const ts = chart.timeScale()
+      isProgrammaticChangeRef.current = true
+      ts.setVisibleLogicalRange({ from, to })
+    }
+
+    try {
       if (!hasAutoFitRef.current) {
-        // 首次載入：套用 100 根視窗
         applyAutoWindow()
         hasAutoFitRef.current = true
-      } else if (autoModeRef.current) {
-        // 監控模式下，僅當數據有更新時才嘗試跟隨最新 K 線
-        if (monitoring && isSubMinute) {
-          applyAutoWindow()
-          chart.timeScale().scrollToRealTime()
-        }
+      } else if (autoModeRef.current && monitoring && interval < 60) {
+        applyAutoWindow()
+        chart.timeScale().scrollToRealTime()
       }
     } catch (error) {
-      if (!silentMode) console.error('❌ Error updating chart view:', error)
+      // 靜默錯誤處理
     }
-  }, [candlesData])
+  }, [candlesData, symbol, interval, monitoring])
 
   return (
     <div className="chart-wrapper" style={{ position: 'relative' }}>

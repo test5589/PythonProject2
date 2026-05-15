@@ -566,20 +566,16 @@ async def get_candles(
         # 1 秒 timeframe 在監控即時模式下，直接使用主 DB 的 1 秒資料；
         # 其他情況仍優先使用 Web Chart DB 中已補齊的 1 秒資料，Web 無資料時才回退到主 DB。
         if interval < 60:
-            # 監控模式的 1 秒即時圖：直接走主 DB 1 秒邏輯（避免卡在 Web DB 舊資料上），
-            # 並以「現在時間」為基準計算查詢時間窗，確保每秒都能看到最新的 K 棒。
+            # 監控模式的 1 秒即時圖：直接走主 DB 1 秒邏輯（避免卡在 Web DB 舊資料上）。
+            # 不帶 start_time/end_time，讓 _build_subminute_response 自動以 DB 最新時間為準。
             if interval == 1 and realtime:
                 try:
-                    now_ts = datetime.now(timezone.utc).timestamp()
-                    window_seconds = float(limit * max(interval, 1))
-                    start_ts = max(0.0, now_ts - window_seconds)
-
                     return _build_subminute_response(
                         symbol=symbol,
                         interval=interval,
                         limit=limit,
-                        start_time=start_ts,
-                        end_time=now_ts,
+                        start_time=None,
+                        end_time=None,
                         data_source=data_source,
                     )
                 except HTTPException:

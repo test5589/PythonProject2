@@ -12,29 +12,21 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
   const intervalRef = useRef(interval)
   const symbolRef = useRef(symbol)
   const backfillStartedRef = useRef(false)
-  const last1sTimestampRef = useRef(null)
-  const noProgressCounterRef = useRef(0)
-  const lastStallWarningRef = useRef(0)
 
+  // 當 symbol 或 interval 變化時，立即重置狀態
   useEffect(() => {
-    intervalRef.current = interval
-  }, [interval])
-
-  useEffect(() => {
-    symbolRef.current = symbol
-    backfillStartedRef.current = false
-    setBackfillStatus('idle')
-    setCurrentWindowCount(0)
+    if (symbol !== symbolRef.current || interval !== intervalRef.current) {
+      symbolRef.current = symbol
+      intervalRef.current = interval
+      backfillStartedRef.current = false
+      setBackfillStatus('idle')
+      setCandlesData([]) // 立即清空，配合 BaseCandlestickChart 的重置邏輯
+      setCurrentWindowCount(0)
+    }
   }, [symbol, interval])
 
   const startBackfillFromWeb = useCallback(async (initialOldestTimestamp) => {
-    if (!initialOldestTimestamp) {
-      return
-    }
-
-    if (backfillStartedRef.current) {
-      return
-    }
+    if (!initialOldestTimestamp || backfillStartedRef.current) return
 
     backfillStartedRef.current = true
     setBackfillStatus('running')
@@ -44,27 +36,23 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
 
     try {
       while (true) {
-        if (intervalRef.current !== 1) {
-          console.log('   ⏹ 時間框架已切換，停止 Web 1 秒回補')
+        // 檢查是否已切換，避免在回補過程中切換了交易對或時間框架
+        if (intervalRef.current !== 1 || symbolRef.current !== symbol) {
+          console.log('   ⏹ 參數已切換，停止 Web 1 秒回補')
           break
         }
 
-        const currentSymbol = symbolRef.current
-
         const params = new URLSearchParams({
-          symbol: currentSymbol,
+          symbol: symbolRef.current,
           limit: String(batchLimit),
           end_before: String(endBefore),
         })
 
         const url = `/api/charts/candles/1s-web-today?${params}`
-        console.log('   回補 1 秒 Web 資料 URL:', url)
-
         const response = await fetch(url)
-        console.log('   回補 1 秒 Web 資料狀態:', response.status, response.statusText)
 
         if (!response.ok) {
-          console.error('❌ 回補 1 秒 Web 資料 HTTP 失敗:', response.status, response.statusText)
+          console.error('❌ 回補 1 秒 Web 資料 HTTP 失敗:', response.status)
           break
         }
 
@@ -75,39 +63,27 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
         }
 
         setCandlesData((prev) => {
+          // 再次檢查確保還在 1 秒模式
+          if (intervalRef.current !== 1) return prev
+          
           const prevList = Array.isArray(prev) ? prev : []
-
-          if (prevList.length === 0) {
-            return data.candles
-          }
+          if (prevList.length === 0) return data.candles
 
           const prevTimestamps = new Set(prevList.map((c) => c.timestamp))
           const older = data.candles.filter((c) => !prevTimestamps.has(c.timestamp))
 
-          if (older.length === 0) {
-            return prevList
-          }
+          if (older.length === 0) return prevList
 
           const merged = [...older, ...prevList]
           merged.sort((a, b) => a.timestamp - b.timestamp)
-          console.log('   ✅ Web 回補後 K 線總數:', merged.length)
           return merged
         })
 
         const oldestInBatch = data.candles[0].timestamp
-
-        if (data.candles.length < batchLimit) {
-          console.log('   ⏹ Web 回補批次小於 batchLimit，視為已到最早可用資料')
-          break
-        }
-
-        if (oldestInBatch >= endBefore) {
-          console.log('   ⏹ Web 回補遇到邏輯邊界，停止迴圈')
-          break
-        }
-
+        if (data.candles.length < batchLimit || oldestInBatch >= endBefore) break
         endBefore = oldestInBatch
       }
+      
       if (intervalRef.current === 1) {
         setBackfillStatus('done')
         console.log('✅ Web 1 秒當日資料分批回補完成')
@@ -116,38 +92,34 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
       console.error('❌ 回補 1 秒 Web 資料時發生錯誤:', error)
       setBackfillStatus('idle')
     }
-  }, [])
+  }, [symbol])
 
   const loadCandles = useCallback(async () => {
-    // 只要在監控模式下，一律使用靜音模式減少日誌
-    const isSubMinute = Number(interval) < 60
     const is1s = Number(interval) === 1
-    const silentMode = monitoring // 只要監控就靜音
+    const isSubMinute = Number(interval) < 60
+    const silentMode = monitoring
 
     if (!silentMode) {
-      // 僅在非監控模式下顯示詳細載入日誌
       console.log('🔄 載入 K 線資料:', { symbol, interval, dataSource })
     }
 
-    // 當 interval 改變時，應該重新全量加載而非增量合併
-    const isIntervalChanged = interval !== intervalRef.current
-    if (isIntervalChanged) {
-      setCandlesData([])
-      intervalRef.current = interval
-    }
+    // 抓取目前的參數，用於稍後核對回傳結果是否過時
+    const requestSymbol = symbol
+    const requestInterval = interval
 
     setLoading(monitoring ? false : true)
     try {
-      // 監控模式下只抓取最近的資料進行增量更新，減少網路負擔
-      const effectiveLimit = monitoring && isSubMinute ? 200 : 3000
+      // 增加監控模式下的 1s 抓取數量，確保有足夠蠟燭顯示
+      const effectiveLimit = monitoring && is1s ? 500 : (monitoring && isSubMinute ? 300 : 3000)
 
       const params = new URLSearchParams({
-        symbol,
-        interval: String(interval),
+        symbol: requestSymbol,
+        interval: String(requestInterval),
         limit: String(effectiveLimit),
       })
 
-      if (monitoring && (Number(interval) === 60 || Number(interval) === 1)) {
+      // 只要是監控模式或 1s，都嘗試 realtime 模式（從主 DB 抓最新）
+      if (monitoring || is1s) {
         params.append('realtime', 'true')
       }
 
@@ -159,23 +131,28 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
       const response = await fetch(url)
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        throw new Error(`HTTP ${response.status}`)
       }
 
       const data = await response.json()
 
+      // 核對請求參數是否仍與當前一致，避免舊回應覆蓋新狀態
+      if (requestSymbol !== symbolRef.current || requestInterval !== intervalRef.current) {
+        return
+      }
+
       if (data.candles && data.candles.length > 0) {
         setCurrentWindowCount(data.candles.length)
 
-        // 增量更新邏輯優化
         setCandlesData((prev) => {
           const prevList = Array.isArray(prev) ? prev : []
-          // 如果是切換 interval、或是非監控模式，直接使用新數據
-          if (prevList.length === 0 || !monitoring || isIntervalChanged) {
+          
+          // 如果是第一次載入或非監控模式，直接使用
+          if (prevList.length === 0 || !monitoring) {
             return data.candles
           }
 
-          // 合併邏輯：確保 interval 一致才合併
+          // 增量合併邏輯
           const lastTsInPrev = prevList[prevList.length - 1].timestamp
           const newCandles = data.candles.filter(c => c.timestamp >= lastTsInPrev)
           
@@ -185,30 +162,31 @@ export function useCandles({ symbol, interval, dataSource, monitoring }) {
           newCandles.forEach(c => candleMap.set(c.timestamp, c))
           
           const merged = Array.from(candleMap.values()).sort((a, b) => a.timestamp - b.timestamp)
-          return merged.slice(-3000)
+          return merged.slice(-5000) // 保留多一點歷史，避免縮放時全白
         })
 
+        // 1s 模式下且非監控時啟動回補
         if (is1s && !backfillStartedRef.current && !monitoring) {
           const oldest = data.candles[0]?.timestamp
           if (oldest) {
             startBackfillFromWeb(oldest)
           }
         }
-
-        if (!monitoring) {
-          message.success(`成功載入 ${data.count} 根K線`)
+      } else {
+        // 如果是 1s 監控模式卻沒數據，可能是後端還沒準備好或沒交易
+        if (is1s && monitoring) {
+          setCurrentWindowCount(0)
         }
       }
     } catch (error) {
       if (!monitoring) {
         console.error('❌ 載入K線失敗:', error.message)
         message.error('載入K線失敗: ' + error.message)
-        setCandlesData([])
       }
     } finally {
       setLoading(false)
     }
-  }, [symbol, interval, dataSource, monitoring])
+  }, [symbol, interval, dataSource, monitoring, startBackfillFromWeb])
 
   return {
     candlesData,

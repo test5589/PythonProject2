@@ -147,13 +147,13 @@ function App() {
   }, [loadCandles, fetchMonitorStatus])
 
   useEffect(() => {
-    if (!monitoring) {
-      return
-    }
+    // 監控模式下 1 秒刷新一次
+    // 非監控模式下 30 秒刷新一次，確保 1 分鐘 K 線也會隨時間更新
+    const refreshInterval = monitoring ? 1000 : 30000
 
     const id = window.setInterval(() => {
       loadCandles()
-    }, 1000)
+    }, refreshInterval)
 
     return () => {
       window.clearInterval(id)
